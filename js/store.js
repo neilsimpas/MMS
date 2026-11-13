@@ -134,7 +134,7 @@ window.Data = (function () {
 
   /* ---------- MMS-only data (saved by this app) ---------- */
   /* ---------- accounts: who is signed in, what they may see ---------- */
-  var DEFAULT_ACCOUNT = 'Alex G. Veimen';
+  var DEFAULT_ACCOUNT = 'Ronnel A. Flores';
   function accounts() { return window.SAP.users.accounts.slice(); }
   function groupOfSection(sec) { return sec === 'Mechanical Section' ? 'MECHANICAL' : sec === 'Electrical Section' ? 'ELEC' : sec === 'C&I Section' ? 'C&I' : ''; }
   function accInfo(a) {
@@ -352,6 +352,7 @@ window.Data = (function () {
     return db.manpower.filter(function (r) { return r.by === me; }).filter(function (r) { return (r.status === 'Approved' || r.status === 'Rejected' || r.status === 'Sent to BPPMS') && r.decidedWhen && r.noticeSeen === false; })
       .sort(function (a, b) { return String(b.decidedWhen).localeCompare(String(a.decidedWhen)); });
   }
+  function markNoticeSeen(id) { var me = account().name; db.manpower.forEach(function (r) { if (r.id === id && r.by === me && r.noticeSeen === false) r.noticeSeen = true; }); save(); }
   function markNoticesSeen() { var me = account().name; db.manpower.forEach(function (r) { if (r.by === me && r.noticeSeen === false) r.noticeSeen = true; }); save(); }
   /* Email addresses are added to window.SAP.users.accounts as email: "name@company.com" at go-live. */
   function emailOf(name) { var a = window.SAP.users.accounts.filter(function (x) { return x.name === name; })[0]; return (a && a.email) || ''; }
@@ -488,7 +489,7 @@ window.Data = (function () {
     remarks: remarks, addRemark: addRemark, record: record, saveRecord: saveRecord,
     manpowerPositions: function () { return MP_POS.map(function (p) { return { pos: p[0] }; }); },
     manpowerStd: MP_STD, manpowerNormalHours: MP_NORMAL_HOURS,
-    bppmsTo: bppmsTo, setBppmsTo: setBppmsTo, emailSignoff: emailSignoff, manpowerNotices: manpowerNotices, emailOf: emailOf, ccFor: ccFor, reload: reload, approvalAlerts: approvalAlerts, markAlertSeen: markAlertSeen, planningAlerts: planningAlerts, markPlanningSeen: markPlanningSeen, inchargeNotices: inchargeNotices, markInchargeSeen: markInchargeSeen, markNoticesSeen: markNoticesSeen, setEmailDraft: setEmailDraft, setEmailSignoff: setEmailSignoff, decideManpower: decideManpower, updateManpower: updateManpower, sendToBppms: sendToBppms, budgetOf: budgetOf, requestSections: requestSections, addBudget: addBudget, budgetLog: budgetLog, people: people, manpowerFor: manpowerFor, budgetKey: budgetKey, budgetGroups: budgetGroups, budgetLabel: budgetLabel, budgetSet: budgetSet, setBudget: setBudget, committed: committed, budgetYears: budgetYears,
+    bppmsTo: bppmsTo, setBppmsTo: setBppmsTo, emailSignoff: emailSignoff, manpowerNotices: manpowerNotices, emailOf: emailOf, ccFor: ccFor, reload: reload, approvalAlerts: approvalAlerts, markAlertSeen: markAlertSeen, planningAlerts: planningAlerts, markPlanningSeen: markPlanningSeen, inchargeNotices: inchargeNotices, markInchargeSeen: markInchargeSeen, markNoticesSeen: markNoticesSeen, markNoticeSeen: markNoticeSeen, setEmailDraft: setEmailDraft, setEmailSignoff: setEmailSignoff, decideManpower: decideManpower, updateManpower: updateManpower, sendToBppms: sendToBppms, budgetOf: budgetOf, requestSections: requestSections, addBudget: addBudget, budgetLog: budgetLog, people: people, manpowerFor: manpowerFor, budgetKey: budgetKey, budgetGroups: budgetGroups, budgetLabel: budgetLabel, budgetSet: budgetSet, setBudget: setBudget, committed: committed, budgetYears: budgetYears,
     calcManpower: calcManpower, classifyTime: classifyTime, manpowerRequests: manpowerRequests, submitManpower: submitManpower, mpDays: mpDays, holidayOf: holiday, mpIsNight: isNightStart,
     simulateSap: simulateSap, reset: reset, rules: rules
   };

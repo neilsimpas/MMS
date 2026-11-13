@@ -8,7 +8,7 @@
   var app = document.getElementById('app');
   var SUP = 'N. G. Simpas';          // signed-in supervisor (demo)
   var ME = 'R. Valledor';            // signed-in technician (demo)
-  var ui = { wo: { status: 'All statuses', tech: 'All', q: '' }, notif: { status: 'Outstanding', month: 'All months', q: '' }, jobs: { status: 'Open', q: '' }, dash: { month: 'All months' }, pr: { show: 'All', sec: 'All', q: '' }, po: { status: 'All', sec: 'All', q: '' }, prtxt: { sel: '' }, potxt: { sel: '' }, eq: { q: '' }, mp: null, bud: { section: '', year: '', add: { ym: '', amount: '', note: '' } }, ap: { status: 'Pending approval', month: '', group: '', open: '' }, apds: {}, mm: { stock: 'All', q: '', limit: 15 }, modal: null, err: '', toast: '' };
+  var ui = { wo: { status: 'All statuses', tech: 'All', q: '' }, notif: { status: 'Outstanding', month: 'All months', q: '' }, jobs: { status: 'Open', q: '' }, dash: { month: 'All months' }, pr: { show: 'All', sec: 'All', q: '' }, po: { status: 'All', sec: 'All', q: '' }, bell: false, prtxt: { sel: '' }, potxt: { sel: '' }, eq: { q: '' }, mp: null, bud: { section: '', year: '', add: { ym: '', amount: '', note: '' } }, ap: { status: 'Pending approval', month: '', group: '', open: '' }, apds: {}, mm: { stock: 'All', q: '', limit: 15 }, modal: null, err: '', toast: '' };
 
   /* ---------- small helpers ---------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -33,6 +33,23 @@
   function notifPill(n, big) { return pill(n.status, NS[n.status] || GREY, big); }
   function link(href, text, cls) { return '<a href="' + href + '" class="mono" style="font-weight:500' + (cls || '') + '">' + esc(text) + '</a>'; }
 
+  /* ---------- notification bell (upper right): supervisors see decisions, superintendents see requests waiting for approval ---------- */
+  function bellItems() {
+    var a = D.account();
+    if (a.level === 'superintendent') return D.approvalAlerts().map(function (r) { return { id: r.id, kind: 'ap', text: 'New manpower request <b>' + esc(r.id) + '</b> · ' + esc(r.activity) + ' · ' + esc(r.section) + ' is waiting for your approval', when: r.when }; });
+    if (a.role === 'supervisor') return D.manpowerNotices().map(function (r) { return { id: r.id, kind: 'mp', text: 'Manpower request <b>' + esc(r.id) + '</b> · ' + esc(r.activity) + ' was <b>' + (r.status === 'Rejected' ? 'rejected' : 'approved') + '</b> by the ' + esc(r.decidedBy || 'Superintendent'), when: r.decidedWhen }; });
+    return [];
+  }
+  function bellHtml() {
+    var a = D.account(); if (!(a.role === 'supervisor' || a.level === 'superintendent')) return '';
+    var items = bellItems(), n = items.length;
+    var icon = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
+    var list = n ? items.map(function (i) { return '<button type="button" data-act="bell-item" data-kind="' + i.kind + '" data-id="' + esc(i.id) + '" style="display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;padding:10px 14px;cursor:pointer;font:inherit;font-size:13px">' + i.text + '<div class="small muted" style="margin-top:2px">' + fmtFull(i.when) + '</div></button>'; }).join('') : '<div class="muted" style="padding:14px">No new updates.</div>';
+    return '<div style="display:flex;justify-content:flex-end;position:relative"><button type="button" data-act="bell-toggle" aria-label="Notifications' + (n ? ', ' + n + ' new' : '') + '" aria-expanded="' + (ui.bell ? 'true' : 'false') + '" style="position:relative;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center">' + icon +
+      (n ? '<span style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#DC2626;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">' + n + '</span>' : '') + '</button>' +
+      (ui.bell ? '<div role="dialog" aria-label="Notifications" style="position:absolute;top:48px;right:0;width:360px;max-width:92vw;max-height:70vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:40"><div class="row between" style="padding:10px 14px;border-bottom:1px solid var(--line)"><b>Notifications</b>' + (n ? '<button type="button" class="btn" data-act="bell-all" style="height:30px;font-size:12px">Mark all as read</button>' : '') + '</div>' + list + '</div>' : '') + '</div>';
+  }
+
   /* ---------- alerts: new requests for approvers, every request and decision for Planning ---------- */
   function alertsBar(active) {
     var ap = D.approvalAlerts(), pl = D.planningAlerts(), h = '';
@@ -42,7 +59,6 @@
     if (pl.length) h += '<div class="card" style="border-color:#1D4ED8" role="status"><div class="row between"><h2>Planning: manpower request updates</h2><button type="button" class="btn" data-act="pl-read">Mark as read</button></div>' +
       pl.slice(0, 6).map(function (r) { var st = r.status === 'Pending approval' ? 'new request, waiting for approval' : r.status === 'Rejected' ? 'rejected by ' + esc(r.decidedBy || '') : r.status === 'Sent to BPPMS' ? 'approved by ' + esc(r.decidedBy || '') + ' and already emailed to BPPMS' : 'approved by ' + esc(r.decidedBy || '');
         return '<div class="note"><b>' + esc(r.id) + ' · ' + esc(r.activity) + '</b> · ' + esc(r.section) + ' · requested by ' + esc(r.by) + ' — ' + st + '</div>'; }).join('') + (pl.length > 6 ? '<div class="small muted">and ' + (pl.length - 6) + ' more</div>' : '') + '</div>';
-    if (canDesk && perm === 'default' && (D.approvalAlerts().length || D.account().section === 'Planning Section' || D.account().level === 'superintendent' || D.account().level === 'manager')) h += '<div class="small muted" style="margin-bottom:8px">Get a pop-up on this PC when a request arrives: <button type="button" class="btn" data-act="alerts-on">Turn on desktop alerts</button></div>';
     return h;
   }
   function desktopAlerts() {   // pop-up on this PC for alerts not yet shown; the first run for an account only records what already exists
@@ -64,16 +80,19 @@
     var pendingMp = D.manpowerRequests().filter(function (r) { return r.status === 'Pending approval' && D.canApprove(r.section); }).length;
     var outstanding = D.notifications().filter(function (n) { return n.status === 'Outstanding'; }).length;
     var supNav = '<a href="#/dashboard" class="' + (active === 'dash' ? 'on' : '') + '">Dashboard</a><a href="#/wo" class="' + (active === 'wo' ? 'on' : '') + '">Work Orders</a><a href="#/notifs" class="' + (active === 'notifs' ? 'on' : '') + '">Notifications<span class="badge">' + outstanding + '</span></a>' +
-        '<a href="#/prs" class="' + (active === 'prs' ? 'on' : '') + '">Purchase Requests</a><a href="#/pos" class="' + (active === 'pos' ? 'on' : '') + '">Purchase Orders</a><a href="#/materials" class="' + (active === 'mm' ? 'on' : '') + '">Material Master</a><a href="#/equipment" class="' + (active === 'eq' ? 'on' : '') + '">Equipment</a><a href="#/manpower" class="' + (active === 'mp' ? 'on' : '') + '">Manpower Request' + (role !== 'technician' && D.manpowerNotices().length ? '<span class="badge">' + D.manpowerNotices().length + '</span>' : '') + '</a>';
-    var apLink = '<a href="#/approvals" class="' + (active === 'ap' ? 'on' : '') + '">Manpower Approvals<span class="badge">' + pendingMp + '</span></a>';
-    var nav = role === 'supervisor' ? supNav
-      : role === 'superintendent' ? supNav + apLink
+        '<a href="#/prs" class="' + (active === 'prs' ? 'on' : '') + '">Purchase Requests</a><a href="#/pos" class="' + (active === 'pos' ? 'on' : '') + '">Purchase Orders</a><a href="#/materials" class="' + (active === 'mm' ? 'on' : '') + '">Material Master</a><a href="#/equipment" class="' + (active === 'eq' ? 'on' : '') + '">Equipment</a>';
+    var mpLink = '<a href="#/manpower" class="' + (active === 'mp' ? 'on' : '') + '">Manpower Request' + (D.manpowerNotices().length ? '<span class="badge">' + D.manpowerNotices().length + '</span>' : '') + '</a>';
+    var apLink = '<a href="#/approvals" class="' + (active === 'ap' ? 'on' : '') + '">Manpower Request<span class="badge">' + pendingMp + '</span></a>';
+    var reqHead = '<div style="border-top:1px solid rgba(255,255,255,.18);margin:10px 8px 4px;padding-top:10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.7">Requests</div>' +
+      '<a href="#/mir" class="' + (active === 'mir' ? 'on' : '') + '">MIR</a><a href="#/pr-approval" class="' + (active === 'pra' ? 'on' : '') + '">PR Approval Request</a>';
+    var nav = role === 'supervisor' ? supNav + reqHead + mpLink
+      : role === 'superintendent' ? supNav + reqHead + (D.account().level === 'manager' ? '' : apLink)
       : '<a href="#/jobs" class="' + (active === 'jobs' ? 'on' : '') + '">My Jobs' + (D.inchargeNotices().length ? '<span class="badge">' + D.inchargeNotices().length + '</span>' : '') + '</a>';
     return '<div class="shell"><nav class="side" aria-label="Main menu"><div class="brand"><div class="logo">MPC</div><div><b>MMS</b><span>Maintenance Management System</span></div></div>' +
       '<div class="nav">' + nav + '</div><div class="grow"></div>' +
-      '<div class="who"><label for="role">Viewing as</label><select id="role" data-account>' + (function () { var cur = D.account().name, secs = []; D.accounts().forEach(function (x) { if (secs.indexOf(x.section) < 0) secs.push(x.section); }); return secs.map(function (sc) { return '<optgroup label="' + esc(sc) + '">' + D.accounts().filter(function (x) { return x.section === sc; }).map(function (x) { return '<option value="' + esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' + esc(x.name) + ' · ' + esc(x.position) + '</option>'; }).join('') + '</optgroup>'; }).join(''); })() + '</select>' +
+      '<div class="who"><label for="role">Viewing as</label><select id="role" data-account>' + (function () { var cur = D.account().name, view = [['Rito M. Valledor', 'Technician'], ['Ronnel A. Flores', 'Supervisor'], ['Carolino M. Luna', 'Superintendent'], ['Romel M. Arnaldo', 'Manager']]; return view.map(function (v) { return '<option value="' + esc(v[0]) + '"' + (v[0] === cur ? ' selected' : '') + '>' + esc(v[0]) + ' - ' + v[1] + '</option>'; }).join(''); })() + '</select>' +
       '<button type="button" data-act="reset">Reset demo data</button><span style="color:#9AA3AF;line-height:1.4">Prototype. SAP data is sample data. Entries made here are saved in this browser only.</span></div></nav>' +
-      '<main class="main">' + alertsBar(active) + content + '</main></div>' + (ui.modal ? modalHtml() : '') + (ui.toast ? '<div class="toast" role="status">' + esc(ui.toast) + '</div>' : '');
+      '<main class="main">' + bellHtml() + content + '</main></div>' + (ui.modal ? modalHtml() : '') + (ui.toast ? '<div class="toast" role="status">' + esc(ui.toast) + '</div>' : '');
   }
   function backLink(href, text) { return '<a class="back" href="' + href + '">← ' + esc(text) + '</a>'; }
 
@@ -514,10 +533,7 @@
   }
   function mpAssigned(name) {
     var list = D.manpowerFor(name); if (!list.length) return '';
-    var nt = D.inchargeNotices(), ntHtml = nt.length ? '<div class="card" style="border-color:#1D4ED8" role="status"><div class="row between"><h2>Updates on your assigned requests</h2><button type="button" class="btn" data-act="mp-read-in">Mark as read</button></div>' + nt.map(function (r) {
-      return '<div class="note"><b>' + esc(r.id) + ' · ' + esc(r.activity) + '</b> is <b>approved' + (r.status === 'Sent to BPPMS' ? ' and already emailed to BPPMS' : '') + '</b> · ' + fmtFull(r.sentWhen || r.decidedWhen) + '<br>You are the MPC organic in-charge · ' + fmtD(r.start) + ' to ' + fmtD(r.end) + ', ' + t12(r.timeStart) + ' – ' + t12(r.timeEnd) + ' · ' + esc(headsText(r)) + '</div>';
-    }).join('') + '</div>' : '';
-    return ntHtml + '<div class="tablecard"><div class="filters"><div class="f"><h2>Manpower requests assigned to you</h2><span class="small muted">You are named as the MPC organic in-charge. Cost is not shown.</span></div></div><div class="scroll"><table style="min-width:820px"><thead><tr><th>Request</th><th>Activity</th><th>Work order</th><th>Dates and time</th><th>BPPMS manpower</th><th>Status</th></tr></thead><tbody>' +
+    return '<div class="tablecard"><div class="filters"><div class="f"><h2>Manpower requests assigned to you</h2><span class="small muted">You are named as the MPC organic in-charge. Cost is not shown.</span></div></div><div class="scroll"><table style="min-width:820px"><thead><tr><th>Request</th><th>Activity</th><th>Work order</th><th>Dates and time</th><th>BPPMS manpower</th><th>Status</th></tr></thead><tbody>' +
       list.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.id) + '<div class="small muted" style="font-weight:400">' + esc(r.section) + '</div></td><td class="desc">' + esc(r.activity) + '</td><td class="mono">' + esc(r.wo) + '</td><td>' + fmtD(r.start) + ' to ' + fmtD(r.end) + '<div class="small muted">' + t12(r.timeStart) + ' – ' + t12(r.timeEnd) + '</div></td><td>' + esc(headsText(r)) + '</td><td>' + mpPill(r.status) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   }
   function mpSummary() {
@@ -586,11 +602,6 @@
     }
     var notices = D.manpowerNotices(), noticeHtml = '';
     if (isSup()) {
-      if (notices.length) noticeHtml = '<div class="card" style="border-color:#1D4ED8" role="status"><div class="row between"><h2>Updates on your requests</h2><button type="button" class="btn" data-act="mp-read">Mark as read</button></div>' + notices.map(function (r) {
-        var ok = r.status !== 'Rejected';
-        return '<div class="note" style="' + (ok ? '' : 'background:#FEF2F2;border-color:#FECACA;color:#991B1B') + '"><b>' + esc(r.id) + ' · ' + esc(r.activity) + '</b> was <b>' + (ok ? 'approved' : 'rejected') + '</b> by the ' + esc(r.decidedBy || 'Superintendent') + ' · ' + fmtFull(r.decidedWhen) +
-          (r.status === 'Sent to BPPMS' ? '<br>Already emailed to BPPMS' + (r.sentWhen ? ' · ' + fmtFull(r.sentWhen) : '') + '. The request is now with BPPMS.' : '') + (r.decisionRemark ? '<br>Remarks: ' + esc(r.decisionRemark) : '') + (r.original && ok ? '<br>Changed before approval: now ' + esc(headsText(r)) + ', ' + fmtD(r.start) + ' to ' + fmtD(r.end) + ', ' + t12(r.timeStart) + ' – ' + t12(r.timeEnd) + '.' : '') + '</div>';
-      }).join('') + '</div>';
     }
     var c = D.calcManpower(m);
     var wos = D.workOrders().filter(function (w) { return !w.historyOnly && !D.rules.isFinished(w); });
@@ -903,8 +914,8 @@
     ME = D.techKey(D.account().name);
     if (['supervisor', 'superintendent', 'technician'].indexOf(role) < 0) { D.setRole('supervisor'); role = 'supervisor'; }
     var home = role === 'technician' ? '#/jobs' : '#/dashboard';
-    var TECH_BLOCK = ['wo', 'notifs', 'dashboard', 'prs', 'pr', 'pos', 'po', 'materials', 'material', 'equipment', 'manpower', 'budget', 'approvals'];
-    if (!p[0] || p[0] === 'budget' || (role === 'supervisor' && ['jobs', 'approvals'].indexOf(p[0]) >= 0) || (role === 'superintendent' && p[0] === 'jobs') || (role === 'technician' && TECH_BLOCK.indexOf(p[0]) >= 0)) { location.hash = home; return; }
+    var TECH_BLOCK = ['wo', 'notifs', 'dashboard', 'prs', 'pr', 'pos', 'po', 'materials', 'material', 'equipment', 'manpower', 'budget', 'approvals', 'pr-approval', 'mir'];
+    if (!p[0] || p[0] === 'budget' || (role === 'supervisor' && ['jobs', 'approvals'].indexOf(p[0]) >= 0) || (role === 'superintendent' && ['jobs', 'manpower'].indexOf(p[0]) >= 0) || (D.account().level === 'manager' && p[0] === 'approvals') || (role === 'technician' && TECH_BLOCK.indexOf(p[0]) >= 0)) { location.hash = home; return; }
     if (p[0] === 'dashboard') html = viewDashboard();
     else if (p[0] === 'prs') html = viewPrList();
     else if (p[0] === 'pr') html = viewPrDetail(p[1]);
@@ -912,6 +923,8 @@
     else if (p[0] === 'po') html = viewPoDetail(p[1]);
     else if (p[0] === 'materials') html = viewMaterials();
     else if (p[0] === 'equipment') html = p[1] ? viewEquipmentDetail(p[1]) : viewEquipment();
+    else if (p[0] === 'pr-approval') html = shell('pra', '<div class="f"><span class="small muted">Requests</span><h1>PR Approval Request</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
+    else if (p[0] === 'mir') html = shell('mir', '<div class="f"><span class="small muted">Requests</span><h1>MIR</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
     else if (p[0] === 'manpower') html = viewManpower();
     else if (p[0] === 'approvals') html = viewApprovals();
     else if (p[0] === 'material') html = viewMaterialDetail(p[1]);
@@ -1025,6 +1038,14 @@
     }
     if (act === 'em-send') { if (sendEmailNow(id)) say(id + ' marked as sent to BPPMS. The requester and the in-charge are notified.'); return; }
     if (act === 'ap-open') { ui.ap.open = id; D.markAlertSeen(id); if (location.hash !== '#/approvals') location.hash = '#/approvals'; else rerender(); window.scrollTo(0, 0); return; }
+    if (act === 'bell-toggle') { ui.bell = !ui.bell; rerender(); return; }
+    if (act === 'bell-all') { bellItems().forEach(function (i) { if (i.kind === 'ap') D.markAlertSeen(i.id); else D.markNoticeSeen(i.id); }); rerender(); return; }
+    if (act === 'bell-item') {
+      var kind = b.getAttribute('data-kind'); ui.bell = false;
+      if (kind === 'ap') { ui.ap.open = id; D.markAlertSeen(id); if (location.hash !== '#/approvals') location.hash = '#/approvals'; else rerender(); }
+      else { D.markNoticeSeen(id); if (location.hash !== '#/manpower') location.hash = '#/manpower'; else rerender(); }
+      window.scrollTo(0, 0); return;
+    }
     if (act === 'ap-back') { ui.ap.open = ''; rerender(); return; }
     if (act === 'pl-read') { D.markPlanningSeen(); rerender(); return; }
     if (act === 'alerts-on') { try { Notification.requestPermission().then(function () { rerender(); say(Notification.permission === 'granted' ? 'Desktop alerts are on for this browser.' : 'Desktop alerts were not allowed.'); }); } catch (e) { say('This browser does not support desktop alerts.'); } return; }
