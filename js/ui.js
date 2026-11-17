@@ -8,7 +8,7 @@
   var app = document.getElementById('app');
   var SUP = 'N. G. Simpas';          // signed-in supervisor (demo)
   var ME = 'R. Valledor';            // signed-in technician (demo)
-  var ui = { wo: { status: 'All statuses', tech: 'All', q: '' }, notif: { status: 'Outstanding', month: 'All months', q: '' }, jobs: { status: 'Open', q: '' }, dash: { month: 'All months' }, pr: { show: 'All', sec: 'All', q: '' }, po: { status: 'All', sec: 'All', q: '' }, bell: false, prtxt: { sel: '' }, potxt: { sel: '' }, eq: { q: '' }, mp: null, bud: { section: '', year: '', add: { ym: '', amount: '', note: '' } }, ap: { status: 'Pending approval', month: '', group: '', open: '' }, apds: {}, mm: { stock: 'All', q: '', limit: 15 }, modal: null, err: '', toast: '' };
+  var ui = { wo: { status: 'All statuses', tech: 'All', q: '' }, notif: { status: 'Outstanding', month: 'All months', q: '' }, jobs: { status: 'Open', q: '' }, dash: { month: 'All months' }, pr: { show: 'All', sec: 'All', q: '' }, po: { status: 'All', sec: 'All', q: '' }, bell: false, pra: { rev: '', io: '', err: '' }, prf: { open: false }, prtxt: { sel: '' }, potxt: { sel: '' }, eq: { q: '' }, mp: null, bud: { section: '', year: '', add: { ym: '', amount: '', note: '' } }, ap: { status: 'Pending approval', month: '', group: '', open: '' }, apds: {}, mm: { stock: 'All', q: '', limit: 15 }, modal: null, err: '', toast: '' };
 
   /* ---------- small helpers ---------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -34,20 +34,40 @@
   function link(href, text, cls) { return '<a href="' + href + '" class="mono" style="font-weight:500' + (cls || '') + '">' + esc(text) + '</a>'; }
 
   /* ---------- notification bell (upper right): supervisors see decisions, superintendents see requests waiting for approval ---------- */
-  function bellItems() {
+  function praBellItems(withRead) {
+    var a = D.account(), out = [], SUP = { 'Approved': 'Request approved', 'Returned to requestor': 'Request returned', 'PR Created': 'PR created', 'Converted to PO': 'PO created' }, sub = function (id, tx) { return '<div class="small muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(id) + (tx ? ' · ' + esc(tx) : '') + '</div>'; };
+    D.prApprovals().filter(function (r) { return D.inScope(r.sec); }).forEach(function (r) {
+      var key = r.id + '|' + r.status, t = '';
+      var seen = D.praSeen(key); if (seen && !withRead) return;
+      if (a.level === 'superintendent' && r.status === 'Pending approval') t = '<b>For your approval</b>' + sub(r.id, r.text);
+      else if (a.level === 'logistics' && r.status === 'For PR conversion') t = '<b>For PR conversion</b>' + sub(r.id, r.text);
+      else if (a.level === 'supervisor' && SUP[r.status]) t = '<b>' + SUP[r.status] + '</b>' + sub(r.id, r.text);
+      if (t) out.push({ id: key, kind: 'pra', text: t, when: r.date, read: seen });
+    });
+    return out;
+  }
+  function bellItems() { return bellItems0().concat(praBellItems()); }
+  function bellItems0() {
     var a = D.account();
-    if (a.level === 'superintendent') return D.approvalAlerts().map(function (r) { return { id: r.id, kind: 'ap', text: 'New manpower request <b>' + esc(r.id) + '</b> · ' + esc(r.activity) + ' · ' + esc(r.section) + ' is waiting for your approval', when: r.when }; });
-    if (a.role === 'supervisor') return D.manpowerNotices().map(function (r) { return { id: r.id, kind: 'mp', text: 'Manpower request <b>' + esc(r.id) + '</b> · ' + esc(r.activity) + ' was <b>' + (r.status === 'Rejected' ? 'rejected' : 'approved') + '</b> by the ' + esc(r.decidedBy || 'Superintendent'), when: r.decidedWhen }; });
+    if (a.level === 'logistics') return [];
+    if (a.level === 'superintendent') return D.approvalAlerts().map(function (r) { return { id: r.id, kind: 'ap', text: '<b>Manpower request for your approval</b><div class="small muted">' + esc(r.id) + ' · ' + esc(r.activity) + '</div>', when: r.when }; });
+    if (a.role === 'supervisor') return D.manpowerNotices().map(function (r) { return { id: r.id, kind: 'mp', text: '<b>Manpower request ' + (r.status === 'Rejected' ? 'rejected' : 'approved') + '</b><div class="small muted">' + esc(r.id) + ' · ' + esc(r.activity) + '</div>', when: r.decidedWhen }; });
     return [];
   }
   function bellHtml() {
     var a = D.account(); if (!(a.role === 'supervisor' || a.level === 'superintendent')) return '';
     var items = bellItems(), n = items.length;
     var icon = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
-    var list = n ? items.map(function (i) { return '<button type="button" data-act="bell-item" data-kind="' + i.kind + '" data-id="' + esc(i.id) + '" style="display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;padding:10px 14px;cursor:pointer;font:inherit;font-size:13px">' + i.text + '<div class="small muted" style="margin-top:2px">' + fmtFull(i.when) + '</div></button>'; }).join('') : '<div class="muted" style="padding:14px">No new updates.</div>';
-    return '<div style="display:flex;justify-content:flex-end;position:relative"><button type="button" data-act="bell-toggle" aria-label="Notifications' + (n ? ', ' + n + ' new' : '') + '" aria-expanded="' + (ui.bell ? 'true' : 'false') + '" style="position:relative;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center">' + icon +
+    var rd = praBellItems(true).filter(function (x) { return x.read; }).sort(function (x, y) { return String(y.when).localeCompare(String(x.when)); });
+    var shown = items.concat(rd).slice(0, 10);
+    var rel = function (w) { var d = age(w); return d === '—' ? '' : d === 0 ? 'Today' : d === 1 ? 'Yesterday' : d + ' days ago'; };
+    var row = function (i) { var unread = !i.read; return '<button type="button" data-act="bell-item" data-kind="' + i.kind + '" data-id="' + esc(i.id) + '" style="display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:' + (unread ? '#F5F9FF' : 'transparent') + ';padding:10px 14px;cursor:pointer;font:inherit;font-size:13px' + (unread ? '' : ';opacity:.65') + '"><span aria-hidden="true" style="flex:none;width:8px;height:8px;border-radius:50%;margin-top:5px;background:' + (unread ? '#2563EB' : 'transparent') + '"></span><span style="flex:1;min-width:0">' + i.text + '<span class="small muted" style="display:block;margin-top:2px">' + rel(i.when) + '</span></span></button>'; };
+    var list = (n ? '' : '<div class="muted" style="padding:14px">You\'re all caught up</div>') + shown.map(row).join('');
+    var allHref = a.level === 'logistics' ? '#/pr-conversion' : '#/pr-approval';
+    var foot = '<div style="padding:10px 14px;text-align:center"><a href="' + allHref + '" data-act="bell-close">View all</a></div>';
+    return '<div class="bellwrap"><button type="button" data-act="bell-toggle" aria-label="Notifications' + (n ? ', ' + n + ' new' : '') + '" aria-expanded="' + (ui.bell ? 'true' : 'false') + '" style="position:relative;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center">' + icon +
       (n ? '<span style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#DC2626;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">' + n + '</span>' : '') + '</button>' +
-      (ui.bell ? '<div role="dialog" aria-label="Notifications" style="position:absolute;top:48px;right:0;width:360px;max-width:92vw;max-height:70vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:40"><div class="row between" style="padding:10px 14px;border-bottom:1px solid var(--line)"><b>Notifications</b>' + (n ? '<button type="button" class="btn" data-act="bell-all" style="height:30px;font-size:12px">Mark all as read</button>' : '') + '</div>' + list + '</div>' : '') + '</div>';
+      (ui.bell ? '<div role="dialog" aria-label="Notifications" style="position:absolute;top:48px;right:0;width:360px;max-width:92vw;max-height:70vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:40"><div class="row between" style="padding:10px 14px;border-bottom:1px solid var(--line)"><b>Notifications</b>' + (n ? '<button type="button" class="btn" data-act="bell-all" style="height:30px;font-size:12px">Mark all as read</button>' : '') + '</div>' + list + foot + '</div>' : '') + '</div>';
   }
 
   /* ---------- alerts: new requests for approvers, every request and decision for Planning ---------- */
@@ -55,7 +75,7 @@
     var ap = D.approvalAlerts(), pl = D.planningAlerts(), h = '';
     var canDesk = typeof Notification !== 'undefined', perm = canDesk ? Notification.permission : 'denied';
     if (ap.length && active !== 'ap') h += '<div class="card" style="border-color:#B45309;background:#FFFBEB" role="status"><div class="row between"><h2>' + ap.length + ' new manpower request' + (ap.length === 1 ? '' : 's') + ' waiting for your approval</h2><a class="btn primary" href="#/approvals" style="text-decoration:none">Open Manpower Approvals</a></div>' +
-      ap.slice(0, 5).map(function (r) { return '<div class="note"><b>' + esc(r.id) + ' · ' + esc(r.activity) + '</b> · ' + esc(r.section) + ' · requested by ' + esc(r.by) + ' · ' + fmtFull(r.when) + ' <button type="button" class="btn" data-act="ap-open" data-id="' + esc(r.id) + '" style="margin-left:8px">Review</button></div>'; }).join('') + '</div>';
+      ap.slice(0, 5).map(function (r) { return '<div class="note"><b>' + esc(r.id) + ' · ' + esc(r.activity) + '</b> · ' + esc(r.section) + ' · requested by ' + esc(r.by) + ' · ' + fmtFull(r.when) + ' ' + eyeBtn('ap-open', r.id, 'margin-left:8px') + '</div>'; }).join('') + '</div>';
     if (pl.length) h += '<div class="card" style="border-color:#1D4ED8" role="status"><div class="row between"><h2>Planning: manpower request updates</h2><button type="button" class="btn" data-act="pl-read">Mark as read</button></div>' +
       pl.slice(0, 6).map(function (r) { var st = r.status === 'Pending approval' ? 'new request, waiting for approval' : r.status === 'Rejected' ? 'rejected by ' + esc(r.decidedBy || '') : r.status === 'Sent to BPPMS' ? 'approved by ' + esc(r.decidedBy || '') + ' and already emailed to BPPMS' : 'approved by ' + esc(r.decidedBy || '');
         return '<div class="note"><b>' + esc(r.id) + ' · ' + esc(r.activity) + '</b> · ' + esc(r.section) + ' · requested by ' + esc(r.by) + ' — ' + st + '</div>'; }).join('') + (pl.length > 6 ? '<div class="small muted">and ' + (pl.length - 6) + ' more</div>' : '') + '</div>';
@@ -83,16 +103,17 @@
         '<a href="#/prs" class="' + (active === 'prs' ? 'on' : '') + '">Purchase Requests</a><a href="#/pos" class="' + (active === 'pos' ? 'on' : '') + '">Purchase Orders</a><a href="#/materials" class="' + (active === 'mm' ? 'on' : '') + '">Material Master</a><a href="#/equipment" class="' + (active === 'eq' ? 'on' : '') + '">Equipment</a>';
     var mpLink = '<a href="#/manpower" class="' + (active === 'mp' ? 'on' : '') + '">Manpower Request' + (D.manpowerNotices().length ? '<span class="badge">' + D.manpowerNotices().length + '</span>' : '') + '</a>';
     var apLink = '<a href="#/approvals" class="' + (active === 'ap' ? 'on' : '') + '">Manpower Request<span class="badge">' + pendingMp + '</span></a>';
-    var reqHead = '<div style="border-top:1px solid rgba(255,255,255,.18);margin:10px 8px 4px;padding-top:10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.7">Requests</div>' +
-      '<a href="#/mir" class="' + (active === 'mir' ? 'on' : '') + '">MIR</a><a href="#/pr-approval" class="' + (active === 'pra' ? 'on' : '') + '">PR Approval Request</a>';
-    var nav = role === 'supervisor' ? supNav + reqHead + mpLink
-      : role === 'superintendent' ? supNav + reqHead + (D.account().level === 'manager' ? '' : apLink)
+    var head = function (t) { return '<div style="border-top:1px solid rgba(255,255,255,.18);margin:10px 8px 4px;padding-top:10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.7">' + t + '</div>'; };
+    var purchasing = head('Purchasing') + '<a href="#/pr-approval" class="' + (active === 'pra' ? 'on' : '') + '">Purchase Approval</a><a href="#/budget-overview" class="' + (active === 'bo' ? 'on' : '') + '">Budget Overview</a>';
+    var nav = D.account().level === 'logistics' ? head('Purchasing') + '<a href="#/pr-conversion" class="' + (active === 'prc' ? 'on' : '') + '">PR Conversion Request</a>'
+      : role === 'supervisor' ? supNav + purchasing + head('Requests') + mpLink
+      : role === 'superintendent' ? supNav + purchasing + (D.account().level === 'manager' ? '' : head('Requests') + apLink)
       : '<a href="#/jobs" class="' + (active === 'jobs' ? 'on' : '') + '">My Jobs' + (D.inchargeNotices().length ? '<span class="badge">' + D.inchargeNotices().length + '</span>' : '') + '</a>';
     return '<div class="shell"><nav class="side" aria-label="Main menu"><div class="brand"><div class="logo">MPC</div><div><b>MMS</b><span>Maintenance Management System</span></div></div>' +
       '<div class="nav">' + nav + '</div><div class="grow"></div>' +
-      '<div class="who"><label for="role">Viewing as</label><select id="role" data-account>' + (function () { var cur = D.account().name, view = [['Rito M. Valledor', 'Technician'], ['Ronnel A. Flores', 'Supervisor'], ['Carolino M. Luna', 'Superintendent'], ['Romel M. Arnaldo', 'Manager']]; return view.map(function (v) { return '<option value="' + esc(v[0]) + '"' + (v[0] === cur ? ' selected' : '') + '>' + esc(v[0]) + ' - ' + v[1] + '</option>'; }).join(''); })() + '</select>' +
+      '<div class="who"><label for="role">Viewing as</label><select id="role" data-account>' + (function () { var cur = D.account().name, view = [['Rito M. Valledor', 'Technician'], ['Ronnel A. Flores', 'Supervisor'], ['Carolino M. Luna', 'Superintendent'], ['Romel M. Arnaldo', 'Manager'], ['Edgardo M. Gurrea Jr.', 'Logistics']]; return view.map(function (v) { return '<option value="' + esc(v[0]) + '"' + (v[0] === cur ? ' selected' : '') + '>' + esc(v[0]) + ' - ' + v[1] + '</option>'; }).join(''); })() + '</select>' +
       '<button type="button" data-act="reset">Reset demo data</button><span style="color:#9AA3AF;line-height:1.4">Prototype. SAP data is sample data. Entries made here are saved in this browser only.</span></div></nav>' +
-      '<main class="main">' + bellHtml() + content + '</main></div>' + (ui.modal ? modalHtml() : '') + (ui.toast ? '<div class="toast" role="status">' + esc(ui.toast) + '</div>' : '');
+      '<main class="main">' + bellHtml() + content + '</main></div>' + (ui.modal ? modalHtml() : '') + (ui.prf.open ? prFormHtml() : '') + (ui.pra.rev ? prReviewHtml() : '') + (ui.toast ? '<div class="toast" role="status">' + esc(ui.toast) + '</div>' : '');
   }
   function backLink(href, text) { return '<a class="back" href="' + href + '">← ' + esc(text) + '</a>'; }
 
@@ -453,6 +474,143 @@
       '<div class="row between" style="padding:12px 18px;border-top:1px solid var(--line)"><span class="small muted">Showing ' + shown.length + ' of ' + rows.length + ' materials · Prices in PHP · Sample data</span>' + (shown.length < rows.length ? '<button type="button" class="btn" data-act="more-materials">Show more</button>' : '') + '</div></div>');
   }
 
+  var PRF_UOM = ['Piece', 'Set', 'Lot', 'Meter', 'Liter', 'Kilogram', 'Box', 'Can', 'Roll'];
+  function prfFresh() { return { open: true, sec: '', type: 'Stock', matq: '', mat: '', short: '', qty: '', uom: '', long: '', unit: '', cur: 'PHP', err: '' }; }
+  function prfMat() { var f = ui.prf; return f.mat ? D.materials().filter(function (x) { return x.mat === f.mat; })[0] || null : null; }
+  function prfTotal() { var f = ui.prf, m = prfMat(), q = parseFloat(f.qty) || 0, u = f.type === 'Stock' ? (m && m.price) || 0 : parseFloat(f.unit) || 0; return q * u; }
+  function prFormHtml() {
+    var f = ui.prf, stock = f.type === 'Stock', m = prfMat(), mats = D.materials();
+    var fld = function (label, req, inner, right) { return '<div class="field"><label' + (right ? ' class="row between"' : '') + '>' + label + (req ? ' <span class="req">*</span>' : '') + (right || '') + '</label>' + inner + '</div>'; };
+    var ro = function (v, ph) { return '<input type="text" value="' + esc(v) + '" placeholder="' + esc(ph || '') + '" readonly tabindex="-1" style="background:#F3F4F6">'; };
+    var opt = function (list, cur, ph) { return '<option value=""' + (cur ? '' : ' selected') + '>' + ph + '</option>' + list.map(function (x) { return '<option' + (x === cur ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join(''); };
+    var short = stock ? (m ? m.text.slice(0, 40) : '') : f.short;
+    var body = fld('Material Type', true, '<select data-prf="type">' + opt(['Stock', 'Non-stock'], f.type, 'Select type') + '</select>');
+    if (stock) body += fld('Material Number', true, '<input type="text" list="prf-mats" data-prf="matq" value="' + esc(f.matq) + '" autocomplete="off"><datalist id="prf-mats">' + mats.map(function (x) { return '<option value="' + esc(x.mat + ' - ' + x.text) + '"></option>'; }).join('') + '</datalist>');
+    body += fld('Short Description', true, stock ? ro(short) : '<input type="text" data-prf="short" maxlength="40" value="' + esc(f.short) + '">', '<span class="small muted" id="prf-cnt">' + short.length + '/40</span>');
+    body += '<div class="g2">' + fld('Qty', true, '<input type="number" min="0" step="any" data-prf="qty" value="' + esc(f.qty) + '">') + fld('UOM', true, stock ? ro(m ? m.uom : '', 'Auto') : '<select data-prf="uom">' + opt(PRF_UOM, f.uom, 'Select UOM') + '</select>') + '</div>';
+    body += fld('Long Description', true, stock ? '<textarea rows="4" readonly tabindex="-1" style="background:#F3F4F6">' + esc(m ? m.text : '') + '</textarea>' : '<textarea rows="4" data-prf="long">' + esc(f.long) + '</textarea>');
+    body += '<div class="g2">' + (stock ? fld('Unit Price', false, ro(m && m.price != null ? amt(m.price) : '', '0.00')) : fld('Unit Price', true, '<input type="number" min="0" step="any" data-prf="unit" value="' + esc(f.unit) + '" placeholder="0.00">')) +
+      fld('Currency', false, stock ? ro('PHP') : '<select data-prf="cur">' + opt(['PHP', 'USD'], f.cur, 'Select') + '</select>') + '</div>';
+    body += fld('Total Price', false, '<input type="text" id="prf-total" value="' + (prfTotal() ? amt(prfTotal()) : '') + '" placeholder="0.00" readonly tabindex="-1" style="background:#F3F4F6">');
+    return '<div class="overlay" data-overlay style="align-items:center"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="prf-title" style="max-width:520px;gap:0;padding:0;overflow:hidden">' +
+      '<div class="row between" style="padding:20px 24px;border-bottom:1px solid var(--line)"><div><h2 id="prf-title" style="font-size:19px">New Purchase Approval</h2></div><button type="button" class="btn" style="border:none;font-size:22px;width:44px;padding:0" aria-label="Close" data-act="prf-close">×</button></div>' +
+      '<div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px;flex:1">' + body + (f.err ? '<div class="err" role="alert">' + esc(f.err) + '</div>' : '') + '</div>' +
+      '<div class="row" style="padding:16px 24px;border-top:1px solid var(--line)"><button type="button" class="btn primary" data-act="prf-submit">Submit request</button><button type="button" class="btn" data-act="prf-clear">Clear</button></div></div></div>';
+  }
+  function prfSubmit() {
+    var f = ui.prf, stock = f.type === 'Stock', m = prfMat(), qty = parseFloat(f.qty), r;
+    f.sec = D.account().site || D.requestSections()[0] || '';
+    if (stock) {
+      if (!m) return 'Pick a material number from the list.';
+      if (!(qty > 0)) return 'Enter the quantity.';
+      r = { sec: f.sec, type: 'Stock', mat: m.mat, text: m.text.slice(0, 40), long: m.text, qty: qty, uom: m.uom, price: m.price, cur: 'PHP', amount: (m.price || 0) * qty };
+    } else {
+      var unit = parseFloat(f.unit);
+      if (!f.short.trim()) return 'Enter the short description.';
+      if (!(qty > 0)) return 'Enter the quantity.';
+      if (!f.uom) return 'Select the UOM.';
+      if (!f.long.trim()) return 'Enter the long description.';
+      if (!(unit > 0)) return 'Enter the unit price.';
+      r = { sec: f.sec, type: 'Non-stock', mat: '', text: f.short.trim(), long: f.long.trim(), qty: qty, uom: f.uom, price: unit, cur: f.cur || 'PHP', amount: unit * qty };
+    }
+    D.addPrApproval(r); ui.prf = { open: false }; say(r.id + ' submitted.'); return '';
+  }
+  var PRA_STATUS = { 'Pending approval': ['#FEF3C7', '#78350F'], 'Approved': ['#DBEAFE', '#1E40AF'], 'For PR conversion': ['#FFEDD5', '#9A3412'], 'PR Created': ['#E0E7FF', '#3730A3'], 'Converted to PO': ['#DCFCE7', '#14532D'], 'Returned to requestor': ['#FEE2E2', '#991B1B'] };
+  function isApprover() { return D.account().level === 'superintendent'; }
+  function ioList() { var me = D.account(); return window.SAP.ios.filter(function (x) { return me.scopeAll || me.group === x.group; }); }
+  function ioLeft(x) { return x.budget - D.prApprovals().filter(function (r) { return r.io === x.io && ['Approved', 'For PR conversion', 'PR Created', 'Converted to PO'].indexOf(r.status) >= 0; }).reduce(function (s, r) { return s + r.amount; }, 0); }
+  function prReviewHtml() {
+    var r = D.prApprovals().filter(function (x) { return x.id === ui.pra.rev; })[0]; if (!r) return '';
+    var row = function (k, v) { return '<div style="display:flex;gap:16px;padding:6px 0;min-height:33px"><dt style="width:140px;flex:none;line-height:21px" class="muted">' + k + '</dt><dd style="margin:0;flex:1">' + v + '</dd></div>'; };
+    var opts = '<option value=""' + (ui.pra.io ? '' : ' selected') + '>Select IO</option>' + ioList().map(function (x) { return '<option value="' + x.io + '"' + (x.io === ui.pra.io ? ' selected' : '') + '>' + x.io + ' - ' + esc(x.desc) + ' (PHP ' + amt(ioLeft(x)) + ' left)</option>'; }).join('');
+    var ioSel = '<div class="field"><label for="pra-io">IO <span class="req">*</span></label><select id="pra-io" data-filter="pra.io">' + opts + '</select></div>', mid = '', btns = '', extra = '';
+    var bt = function (cls, act, label) { return '<button type="button" class="btn' + cls + '" data-act="' + act + '" data-id="' + esc(r.id) + '">' + label + '</button>'; };
+    var stockR = !!r.mat, hideDl = false;
+    if (D.account().level === 'logistics') {
+      if (ui.pra.pr && r.status === 'For PR conversion') {
+        hideDl = true;
+        mid = '<div class="field"><label for="pr-no">PR number <span class="req">*</span></label><input type="text" id="pr-no" data-pra="pf.no" value="' + esc(ui.pra.pf.no) + '"></div><div class="field"><label for="pr-item">Item number <span class="req">*</span></label><input type="text" id="pr-item" data-pra="pf.item" value="' + esc(ui.pra.pf.item) + '"></div>';
+        btns = bt(' primary', 'pra-pr-send', 'Convert to PR');
+      } else {
+        extra = (r.io ? row('IO', esc(r.io)) : '') + (r.conv ? row('Reservation #', esc(r.conv.res)) + row('Item #', esc(r.conv.items)) : '') + (r.prNo ? row('PR #', esc(r.prNo)) + row('PR item', esc(r.prItem)) : '');
+        if (r.status === 'For PR conversion') btns = bt(' primary', 'pra-pr', 'Convert to PR');
+      }
+    } else if (!isApprover()) {
+      var rem = r.status === 'Returned to requestor' && r.remarks ? row('Remarks', esc(r.remarks)) : '';
+      if (ui.pra.edit && ['Pending approval', 'Approved', 'Returned to requestor'].indexOf(r.status) >= 0) {
+        var locked = r.status === 'Approved', ef = ui.pra.ef, fl = function (label, inner) { return '<div class="field"><label>' + label + '</label>' + inner + '</div>'; };
+        var rd = function (v) { return '<input type="text" value="' + esc(v) + '" readonly tabindex="-1" style="background:#F3F4F6">'; };
+        hideDl = true;
+        mid = fl('Description', stockR ? rd(r.text) : '<input type="text" maxlength="40" data-pra="ef.text" value="' + esc(ef.text) + '">') +
+          '<div class="g2">' + fl('Qty', locked ? rd(ef.qty) : '<input type="number" min="0" step="any" data-pra="ef.qty" value="' + esc(ef.qty) + '">') + fl('UOM', stockR ? rd(r.uom || '') : '<select data-pra="ef.uom">' + PRF_UOM.map(function (u) { return '<option' + (u === ef.uom ? ' selected' : '') + '>' + u + '</option>'; }).join('') + '</select>') + '</div>' +
+          fl('Long description', stockR ? '<textarea rows="3" readonly tabindex="-1" style="background:#F3F4F6">' + esc(r.long || r.text) + '</textarea>' : '<textarea rows="3" data-pra="ef.long">' + esc(ef.long) + '</textarea>') +
+          fl('Unit Price', stockR || locked ? rd(amt(ef.price)) : '<input type="number" min="0" step="any" data-pra="ef.price" value="' + esc(ef.price) + '">') +
+          fl('Total Price', '<input type="text" id="pra-total" value="' + amt((parseFloat(ef.qty) || 0) * (parseFloat(ef.price) || 0)) + '" readonly tabindex="-1" style="background:#F3F4F6">');
+        btns = bt(' primary', 'pra-sedit', r.status === 'Returned to requestor' ? 'Resubmit' : 'Save');
+      } else if (ui.pra.pr && r.status === 'Approved' && !stockR) {
+        hideDl = true;
+        mid = '<div class="field"><label for="pr-no">PR number <span class="req">*</span></label><input type="text" id="pr-no" data-pra="pf.no" value="' + esc(ui.pra.pf.no) + '"></div><div class="field"><label for="pr-item">Item number <span class="req">*</span></label><input type="text" id="pr-item" data-pra="pf.item" value="' + esc(ui.pra.pf.item) + '"></div>';
+        btns = bt(' primary', 'pra-pr-send', 'Submit PR details');
+      } else if (ui.pra.cp && r.status === 'Approved' && !stockR) {
+        hideDl = true;
+        mid = '<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px"><li>Create work order</li><li>Copy PR details <button type="button" class="btn" data-act="pra-copy" data-id="' + esc(r.id) + '" style="height:22px;padding:0 10px;margin:-2px 0 -2px 8px;vertical-align:middle;line-height:1;font-size:12px;font-weight:500">Copy PR details</button></li><li>Paste to components</li><li>Save</li></ol>';
+        btns = bt(' primary', 'pra-pr-open', 'Enter PR details');
+      } else if (ui.pra.conv && r.status === 'Approved' && stockR && !r.conv) {
+        hideDl = true;
+        mid = '<div class="field"><label for="cv-res">Reservation number <span class="req">*</span></label><input type="text" id="cv-res" data-pra="cv.res" value="' + esc(ui.pra.cvf.res) + '"></div><div class="field"><label for="cv-items">Item number/s <span class="req">*</span></label><input type="text" id="cv-items" data-pra="cv.items" value="' + esc(ui.pra.cvf.items) + '"></div>';
+        btns = bt(' primary', 'pra-conv-send', 'Submit request');
+      } else {
+        extra = (r.io ? row('IO', esc(r.io)) : '') + (r.conv ? row('Reservation #', esc(r.conv.res)) + row('Item #', esc(r.conv.items)) : '') + (r.prNo ? row('PR #', esc(r.prNo)) + row('PR item', esc(r.prItem)) : '') + rem;
+        if (r.status === 'Approved' && stockR && !r.conv) btns = bt(' primary', 'pra-conv', 'Request for PR conversion');
+        else if (r.status === 'Approved' && !stockR) btns = bt(' primary', 'pra-cp', 'Create PR') + bt('', 'pra-edit', 'Edit');
+        else if (['Pending approval', 'Returned to requestor'].indexOf(r.status) >= 0) btns = bt(' primary', 'pra-edit', 'Edit');
+      }
+    } else if (r.status === 'Pending approval') {
+      if (ui.pra.ret) {
+        mid = '<div class="field"><label for="pra-rem">Remarks <span class="req">*</span></label><textarea id="pra-rem" rows="3" data-pra="rem">' + esc(ui.pra.rem || '') + '</textarea></div>';
+        btns = bt(' primary', 'pra-reject', 'Return to requestor');
+      } else {
+        mid = ioSel;
+        btns = bt(' primary', 'pra-approve', 'Approve') + bt('', 'pra-return', 'Return');
+      }
+    } else if (r.status === 'Approved') {
+      if (ui.pra.edit) { mid = ioSel; btns = bt(' primary', 'pra-save', 'Save') + bt('', 'pra-cancel', 'Cancel approval'); }
+      else { extra = row('IO', esc(r.io || '')); btns = bt(' primary', 'pra-edit', 'Edit'); }
+    } else {
+      extra = (r.io ? row('IO', esc(r.io)) : '') + (r.status === 'Returned to requestor' && r.remarks ? row('Remarks', esc(r.remarks)) : '');
+    }
+    return '<div class="overlay" data-overlay style="align-items:center"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pra-title" style="max-width:520px;gap:0;padding:0;overflow:hidden">' +
+      '<div class="row between" style="padding:20px 24px;border-bottom:1px solid var(--line)"><h2 id="pra-title" style="font-size:19px">' + esc(r.id) + '</h2><button type="button" class="btn" style="border:none;font-size:22px;width:44px;padding:0" aria-label="Close" data-act="pra-close">×</button></div>' +
+      '<div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px;flex:1">' + (hideDl ? '' : '<dl style="margin:0">' + row('Material #', esc(r.mat || '')) + row('Description', esc(r.text)) + (r.long ? row('Long description', esc(r.long)) : '') + row('Qty', r.qty ? esc(r.qty + ' ' + (r.uom || '')) : '') + row('Total Amount', 'PHP ' + amt(r.amount)) + row('Requested by', esc(r.by)) + extra + '</dl>') +
+      mid + (ui.pra.err ? '<div class="err" role="alert">' + esc(ui.pra.err) + '</div>' : '') + '</div>' +
+      (btns ? '<div class="row" style="padding:16px 24px;border-top:1px solid var(--line)">' + btns + '</div>' : '') + '</div></div>';
+  }
+  function eyeBtn(act, id, extra) { return '<button type="button" class="btn" data-act="' + act + '" data-id="' + esc(id) + '" aria-label="Review" title="Review" style="height:28px;width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center;' + (extra || '') + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button>'; }
+  function praAction(r) {
+    var stock = !!r.mat;
+    if (r.status === 'Pending approval') return 'Superintendent to approve';
+    if (r.status === 'For PR conversion') return 'Logistics to convert PR';
+    if (r.status === 'Approved') return stock ? 'Supervisor to request PR conversion' : 'Supervisor to create PR';
+    if (r.status === 'PR Created') return 'Logistics to convert to PO';
+    if (r.status === 'Returned to requestor') return r.remarks || '';
+    return '';
+  }
+  function viewPrConversion() {
+    var rows = D.prApprovals().filter(function (r) { return r.conv && ['For PR conversion', 'PR Created', 'Converted to PO'].indexOf(r.status) >= 0; }).sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
+    var body = rows.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.id) + '</td><td style="white-space:nowrap">' + fmtD(r.date) + '</td><td>' + esc(r.sec) + '</td><td class="mono">' + esc(r.conv.res) + '</td><td class="mono">' + esc(r.conv.items) + '</td><td class="mono">' + esc(r.mat || '') + '</td><td class="desc">' + esc(r.text) + '</td><td style="text-align:right">' + (r.qty || '') + '</td><td style="text-align:right">' + amt(r.amount) + '</td><td class="mono">' + esc(r.io || '') + '</td><td>' + pill(r.status, PRA_STATUS[r.status] || GREY) + '</td><td>' + eyeBtn('pra-review', r.id) + '</td></tr>'; }).join('');
+    return shell('prc', '<div class="f"><span class="small muted">Purchasing</span><h1>PR Conversion Request</h1></div>' +
+      '<div class="tablecard"><div class="scroll"><table style="min-width:900px"><thead><tr><th>Control #</th><th>Date</th><th>Section</th><th>Reservation #</th><th>Item #</th><th>Material #</th><th style="width:320px">Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Total Amount</th><th>IO</th><th>Status</th><th></th></tr></thead><tbody>' + (body || '<tr><td colspan="12" class="empty">No requests.</td></tr>') + '</tbody></table></div></div>');
+  }
+  function viewPrApproval() {
+    var reqs = D.prApprovals().filter(function (r) { return D.inScope(r.sec); });
+    var count = function (st) { return reqs.filter(function (r) { return r.status === st; }).length; };
+    var rows = reqs.slice().sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
+    var cards = [['Waiting for Approval', count('Pending approval')], ['Waiting for PR creation/conversion', (count('Approved') + count('For PR conversion'))], ['Waiting for PO', count('PR Created')]];
+    var body = rows.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.id) + '</td><td style="white-space:nowrap">' + fmtD(r.date) + '</td><td class="mono">' + esc(r.mat || '') + '</td><td class="desc">' + esc(r.text) + '</td><td style="text-align:right">' + (r.qty || '') + '</td><td style="text-align:right">' + amt(r.amount) + '</td><td class="mono">' + esc(r.io || '') + '</td><td>' + pill(r.status, PRA_STATUS[r.status] || GREY) + '</td><td style="color:#B91C1C;font-size:12px;font-weight:600">' + esc(praAction(r)) + '</td>' + '<td>' + eyeBtn('pra-review', r.id) + '</td></tr>'; }).join('');
+    return shell('pra', '<div class="row between" style="align-items:flex-start"><div class="f"><span class="small muted">Purchasing</span><h1>Purchase Approval</h1></div>' + (D.account().level === 'supervisor' ? '<button type="button" class="btn primary" data-act="prf-open" style="height:40px">New request</button>' : '') + '</div>' +
+      '<div class="cards">' + cards.map(function (c) { return '<div class="stat"><span>' + esc(c[0]) + '</span><b>' + c[1] + '</b></div>'; }).join('') + '</div>' +
+      '<div class="tablecard"><div class="scroll"><table style="min-width:900px"><thead><tr><th>Control #</th><th>Date</th><th>Material #</th><th style="width:320px">Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Total Amount</th><th>IO</th><th>Status</th><th>Action</th>' + '<th></th>' + '</tr></thead><tbody>' + (body || '<tr><td colspan="10" class="empty">No requests.</td></tr>') + '</tbody></table></div></div>');
+  }
   function viewEquipment() {
     var seen = {}, all = [], q = ui.eq.q.toLowerCase();
     D.workOrders().concat(D.notifications()).forEach(function (x) { if (x.kks && !seen[x.kks]) { seen[x.kks] = 1; all.push({ kks: x.kks, text: x.equipment || '' }); } });
@@ -913,8 +1071,9 @@
     var h = (location.hash || '').replace(/^#\/?/, ''), p = h.split('/'), role = D.role(), html;
     ME = D.techKey(D.account().name);
     if (['supervisor', 'superintendent', 'technician'].indexOf(role) < 0) { D.setRole('supervisor'); role = 'supervisor'; }
-    var home = role === 'technician' ? '#/jobs' : '#/dashboard';
-    var TECH_BLOCK = ['wo', 'notifs', 'dashboard', 'prs', 'pr', 'pos', 'po', 'materials', 'material', 'equipment', 'manpower', 'budget', 'approvals', 'pr-approval', 'mir'];
+    var home = role === 'technician' ? '#/jobs' : D.account().level === 'logistics' ? '#/pr-conversion' : '#/dashboard';
+    var TECH_BLOCK = ['wo', 'notifs', 'dashboard', 'prs', 'pr', 'pos', 'po', 'materials', 'material', 'equipment', 'manpower', 'budget', 'approvals', 'pr-approval', 'budget-overview'];
+    if (D.account().level === 'logistics' && p[0] !== 'pr-conversion') { location.hash = home; return; }
     if (!p[0] || p[0] === 'budget' || (role === 'supervisor' && ['jobs', 'approvals'].indexOf(p[0]) >= 0) || (role === 'superintendent' && ['jobs', 'manpower'].indexOf(p[0]) >= 0) || (D.account().level === 'manager' && p[0] === 'approvals') || (role === 'technician' && TECH_BLOCK.indexOf(p[0]) >= 0)) { location.hash = home; return; }
     if (p[0] === 'dashboard') html = viewDashboard();
     else if (p[0] === 'prs') html = viewPrList();
@@ -923,8 +1082,9 @@
     else if (p[0] === 'po') html = viewPoDetail(p[1]);
     else if (p[0] === 'materials') html = viewMaterials();
     else if (p[0] === 'equipment') html = p[1] ? viewEquipmentDetail(p[1]) : viewEquipment();
-    else if (p[0] === 'pr-approval') html = shell('pra', '<div class="f"><span class="small muted">Requests</span><h1>PR Approval Request</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
-    else if (p[0] === 'mir') html = shell('mir', '<div class="f"><span class="small muted">Requests</span><h1>MIR</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
+    else if (p[0] === 'pr-approval') html = (role === 'supervisor' || D.account().level === 'superintendent') ? viewPrApproval() : shell('pra', '<div class="f"><span class="small muted">Purchasing</span><h1>Purchase Approval</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
+    else if (p[0] === 'pr-conversion') html = viewPrConversion();
+    else if (p[0] === 'budget-overview') html = shell('bo', '<div class="f"><span class="small muted">Purchasing</span><h1>Budget Overview</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
     else if (p[0] === 'manpower') html = viewManpower();
     else if (p[0] === 'approvals') html = viewApprovals();
     else if (p[0] === 'material') html = viewMaterialDetail(p[1]);
@@ -962,16 +1122,29 @@
     ui.ap.status = 'Sent to BPPMS'; ui.modal = { type: 'sent', id: id, to: to }; return true;
   }
   function rerender() { route(); }
-  function say(msg) { ui.toast = msg; rerender(); setTimeout(function () { ui.toast = ''; if (document.querySelector('.toast')) rerender(); }, 2500); }
+  function say(msg) { ui.toast = msg; rerender(); setTimeout(function () { ui.toast = ''; if (document.querySelector('.toast')) rerender(); }, 4500); }
 
   document.addEventListener('change', function (e) {
     var t = e.target;
-    if (t.hasAttribute('data-account')) { D.setAccount(t.value); ui.modal = null; ui.mp = null; ui.apds = {}; ui.ap.group = ''; ME = D.techKey(t.value); location.hash = D.role() === 'technician' ? '#/jobs' : '#/dashboard'; rerender(); return; }
+    if (t.hasAttribute('data-account')) { D.setAccount(t.value); ui.modal = null; ui.mp = null; ui.apds = {}; ui.ap.group = ''; ME = D.techKey(t.value); location.hash = D.role() === 'technician' ? '#/jobs' : D.account().level === 'logistics' ? '#/pr-conversion' : '#/dashboard'; rerender(); return; }
     if (t.hasAttribute('data-bud')) { D.setBudget(t.getAttribute('data-sec'), t.getAttribute('data-ym'), t.getAttribute('data-bud'), t.value); rerender(); return; }
+    var pk = t.getAttribute && t.getAttribute('data-prf');
+    if (pk) {
+      if (pk === 'matq') { var mv = t.value, mm = D.materials().filter(function (x) { return mv === x.mat + ' - ' + x.text || mv.trim() === x.mat; })[0]; ui.prf.matq = mv; ui.prf.mat = mm ? mm.mat : ''; if (mm) ui.prf.matq = mm.mat + ' - ' + mm.text; ui.prf.err = mm || !mv ? '' : 'Pick a material number from the list.'; rerender(); }
+      else if (t.tagName === 'SELECT') { ui.prf[pk] = t.value; ui.prf.err = ''; rerender(); }
+      return;
+    }
     var fk = t.getAttribute && t.getAttribute('data-filter');
     if (fk) { var a = fk.split('.'); ui[a[0]][a[1]] = t.value; rerender(); }
   });
   document.addEventListener('input', function (e) {
+    var pak = e.target.getAttribute && e.target.getAttribute('data-pra');
+    if (pak === 'rem') { ui.pra.rem = e.target.value; return; }
+    if (pak && pak.indexOf('pf.') === 0) { ui.pra.pf[pak.slice(3)] = e.target.value; return; }
+    if (pak && pak.indexOf('cv.') === 0) { ui.pra.cvf[pak.slice(3)] = e.target.value; return; }
+    if (pak && pak.indexOf('ef.') === 0) { ui.pra.ef[pak.slice(3)] = e.target.value; var pt2 = document.getElementById('pra-total'); if (pt2) pt2.value = amt((parseFloat(ui.pra.ef.qty) || 0) * (parseFloat(ui.pra.ef.price) || 0)); return; }
+    var pk = e.target.getAttribute && e.target.getAttribute('data-prf');
+    if (pk) { ui.prf[pk] = e.target.value; if (pk === 'qty' || pk === 'unit') { var pt = document.getElementById('prf-total'); if (pt) pt.value = prfTotal() ? amt(prfTotal()) : ''; } if (pk === 'short') { var pc = document.getElementById('prf-cnt'); if (pc) pc.textContent = e.target.value.length + '/40'; } return; }
     var bak = e.target.getAttribute && e.target.getAttribute('data-budadd'); if (bak) { ui.bud.add[bak] = e.target.value; return; }
     var emk = e.target.getAttribute && e.target.getAttribute('data-em');
     if (emk) {
@@ -1012,7 +1185,7 @@
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && ui.modal) { ui.modal = null; ui.err = ''; rerender(); } });
   document.addEventListener('click', function (e) {
-    if (e.target.hasAttribute && e.target.hasAttribute('data-overlay')) { ui.modal = null; ui.err = ''; rerender(); return; }
+    if (e.target.hasAttribute && e.target.hasAttribute('data-overlay')) { ui.modal = null; ui.err = ''; ui.prf = { open: false }; ui.pra.rev = ''; rerender(); return; }
     var b = e.target.closest && e.target.closest('[data-act]'); if (!b || b.disabled) return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id');
     if (act === 'mp-step') { var mi = +b.getAttribute('data-i'), mp = mpState(), pn = D.manpowerPositions()[mi].pos; mp.qty[pn] = Math.max(0, Math.min(99, (parseInt(mp.qty[pn], 10) || 0) + (+b.getAttribute('data-d')))); var inp = document.querySelector('input[data-mp="qty"][data-i="' + mi + '"]'); if (inp) inp.value = mp.qty[pn]; mp.err = ''; if (mp.qty[pn] === 0) rerender(); else mpRefresh(); return; }
@@ -1038,11 +1211,68 @@
     }
     if (act === 'em-send') { if (sendEmailNow(id)) say(id + ' marked as sent to BPPMS. The requester and the in-charge are notified.'); return; }
     if (act === 'ap-open') { ui.ap.open = id; D.markAlertSeen(id); if (location.hash !== '#/approvals') location.hash = '#/approvals'; else rerender(); window.scrollTo(0, 0); return; }
+    if (act === 'pra-review') { var pr0 = D.prApprovals().filter(function (x) { return x.id === id; })[0]; ui.pra = { rev: id, io: pr0 && pr0.status === 'Approved' ? pr0.io : '', err: '' }; rerender(); return; }
+    if (act === 'pra-cp') { ui.pra.cp = true; ui.pra.err = ''; rerender(); return; }
+    if (act === 'pra-pr-open') { ui.pra.pr = true; ui.pra.pf = { no: '', item: '' }; ui.pra.err = ''; rerender(); return; }
+    if (act === 'pra-copy') {
+      var cr = D.prApprovals().filter(function (x) { return x.id === id; })[0], ct = ['', cr.text, cr.qty || '', cr.uom || '', 'N'].join('\t');
+      var done = function () { say('PR details copied.'); };
+      try { navigator.clipboard.writeText(ct).then(done, function () { say('Copy failed.'); }); } catch (e) { say('Copy failed.'); }
+      return;
+    }
+    if (act === 'pra-pr') { ui.pra.pr = true; ui.pra.pf = { no: '', item: '' }; ui.pra.err = ''; rerender(); return; }
+    if (act === 'pra-pr-send') {
+      var pf = ui.pra.pf;
+      if (!String(pf.no).trim() || !String(pf.item).trim()) { ui.pra.err = 'Enter the PR number and item number.'; rerender(); return; }
+      if (!/^\d{10}$/.test(String(pf.no).trim())) { ui.pra.err = 'The PR number must be 10 digits.'; rerender(); return; }
+      if (!/^\d+$/.test(String(pf.item).trim())) { ui.pra.err = 'The item number must be numbers only.'; rerender(); return; }
+      if (D.prItemExists(String(pf.no).trim(), String(pf.item).trim())) { ui.pra.err = 'PR ' + String(pf.no).trim() + ' item ' + String(pf.item).trim() + ' already exists.'; rerender(); return; }
+      D.convertToPr(id, String(pf.no).trim(), String(pf.item).trim()); ui.pra = { rev: '', io: '', err: '' }; say(id + ' converted to PR ' + pf.no.trim() + '.'); return;
+    }
+    if (act === 'pra-conv') { ui.pra.conv = true; ui.pra.cvf = { res: '', items: '' }; ui.pra.err = ''; rerender(); return; }
+    if (act === 'pra-conv-send') {
+      var cf = ui.pra.cvf;
+      if (!String(cf.res).trim() || !String(cf.items).trim()) { ui.pra.err = 'Enter the reservation number and item number/s.'; rerender(); return; }
+      D.requestPrConversion(id, String(cf.res).trim(), String(cf.items).trim()); ui.pra = { rev: '', io: '', err: '' }; say('PR conversion requested for ' + id + '.'); return;
+    }
+    if (act === 'pra-edit') {
+      ui.pra.edit = true;
+      if (!isApprover()) { var e0 = D.prApprovals().filter(function (x) { return x.id === id; })[0]; ui.pra.ef = { text: e0.text, qty: e0.qty || '', uom: e0.uom || PRF_UOM[0], long: e0.long || '', price: e0.price != null ? e0.price : (e0.qty ? e0.amount / e0.qty : e0.amount) }; }
+      rerender(); return;
+    }
+    if (act === 'pra-sedit') {
+      var e1 = D.prApprovals().filter(function (x) { return x.id === id; })[0], ef1 = ui.pra.ef, q1 = parseFloat(ef1.qty), p1 = parseFloat(ef1.price), st1 = !!e1.mat;
+      if (!st1 && !String(ef1.text).trim()) { ui.pra.err = 'Enter the description.'; rerender(); return; }
+      if (e1.status !== 'Approved' && !(q1 > 0)) { ui.pra.err = 'Enter the quantity.'; rerender(); return; }
+      if (e1.status !== 'Approved' && !(p1 > 0)) { ui.pra.err = 'Enter the unit price.'; rerender(); return; }
+      D.editPrApproval(id, e1.status === 'Approved' ? { text: String(ef1.text).trim(), uom: ef1.uom, long: String(ef1.long).trim() } : st1 ? { qty: q1, amount: q1 * p1 } : { text: String(ef1.text).trim(), qty: q1, uom: ef1.uom, long: String(ef1.long).trim(), price: p1, amount: q1 * p1 });
+      if (e1.status === 'Returned to requestor') D.decidePrApproval(id, 'Pending approval', '');
+      ui.pra = { rev: '', io: '', err: '' }; say(id + ' updated.'); return;
+    }
+    if (act === 'pra-close') { ui.pra.rev = ''; ui.pra.err = ''; rerender(); return; }
+    if (act === 'pra-return') { ui.pra.ret = true; ui.pra.err = ''; rerender(); return; }
+    if (act === 'pra-reject') {
+      if (!(ui.pra.rem || '').trim()) { ui.pra.err = 'Enter the remarks.'; rerender(); return; }
+      D.decidePrApproval(id, 'Returned to requestor', '', ui.pra.rem.trim()); ui.pra = { rev: '', io: '', err: '' }; say(id + ' returned to requestor.'); return;
+    }
+    if (act === 'pra-approve' || act === 'pra-save') {
+      var rq = D.prApprovals().filter(function (x) { return x.id === id; })[0], io = ioList().filter(function (x) { return x.io === ui.pra.io; })[0];
+      if (!io) { ui.pra.err = 'Select the IO.'; rerender(); return; }
+      if (io.io !== rq.io && rq.amount > ioLeft(io)) { ui.pra.err = 'The amount is more than the remaining budget of this IO.'; rerender(); return; }
+      D.decidePrApproval(id, 'Approved', io.io); ui.pra = { rev: '', io: '', err: '' }; say(id + (act === 'pra-save' ? ' updated. ' : ' approved. ') + 'IO ' + io.io + ' balance: PHP ' + amt(ioLeft(io))); return;
+    }
+    if (act === 'pra-cancel') { D.decidePrApproval(id, 'Pending approval', ''); ui.pra = { rev: '', io: '', err: '' }; say('Approval of ' + id + ' cancelled.'); return; }
+    if (act === 'prf-open') { ui.prf = prfFresh(); rerender(); return; }
+    if (act === 'prf-close') { ui.prf = { open: false }; rerender(); return; }
+    if (act === 'prf-clear') { ui.prf = prfFresh(); rerender(); return; }
+    if (act === 'prf-submit') { var pe = prfSubmit(); if (pe) { ui.prf.err = pe; rerender(); } return; }
+    if (act === 'bell-close') { ui.bell = false; rerender(); return; }
     if (act === 'bell-toggle') { ui.bell = !ui.bell; rerender(); return; }
-    if (act === 'bell-all') { bellItems().forEach(function (i) { if (i.kind === 'ap') D.markAlertSeen(i.id); else D.markNoticeSeen(i.id); }); rerender(); return; }
+    if (act === 'bell-all') { bellItems().forEach(function (i) { if (i.kind === 'ap') D.markAlertSeen(i.id); else if (i.kind === 'pra') D.markPraSeen(i.id); else D.markNoticeSeen(i.id); }); rerender(); return; }
     if (act === 'bell-item') {
       var kind = b.getAttribute('data-kind'); ui.bell = false;
-      if (kind === 'ap') { ui.ap.open = id; D.markAlertSeen(id); if (location.hash !== '#/approvals') location.hash = '#/approvals'; else rerender(); }
+      if (kind === 'pra') { D.markPraSeen(id); ui.pra = { rev: id.split('|')[0], io: '', err: '' }; var ph = D.account().level === 'logistics' ? '#/pr-conversion' : '#/pr-approval'; if (location.hash !== ph) location.hash = ph; else rerender(); }
+      else if (kind === 'ap') { ui.ap.open = id; D.markAlertSeen(id); if (location.hash !== '#/approvals') location.hash = '#/approvals'; else rerender(); }
       else { D.markNoticeSeen(id); if (location.hash !== '#/manpower') location.hash = '#/manpower'; else rerender(); }
       window.scrollTo(0, 0); return;
     }

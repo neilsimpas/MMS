@@ -137,11 +137,12 @@ window.Data = (function () {
   var DEFAULT_ACCOUNT = 'Ronnel A. Flores';
   function accounts() { return window.SAP.users.accounts.slice(); }
   function groupOfSection(sec) { return sec === 'Mechanical Section' ? 'MECHANICAL' : sec === 'Electrical Section' ? 'ELEC' : sec === 'C&I Section' ? 'C&I' : ''; }
+  var SITE = { 'Ronnel A. Flores': 'MECH-BLR', 'Rito M. Valledor': 'MECH-BLR' };   // the work section of a person; everyone else follows the section group (Superintendent: all MECH)
   function accInfo(a) {
-    var pos = a.position, level = /Superintendent/.test(pos) ? 'superintendent' : /Manager/.test(pos) ? 'manager' : /Supervisor/.test(pos) ? 'supervisor' : 'staff';
-    var all = a.section === 'Planning Section' || /Manager/.test(pos);          // Planning (all of them) and the Maintenance Manager see every section
+    var pos = a.position, level = /Logistics/.test(pos) ? 'logistics' : /Superintendent/.test(pos) ? 'superintendent' : /Manager/.test(pos) ? 'manager' : /Supervisor/.test(pos) ? 'supervisor' : 'staff';
+    var all = a.section === 'Planning Section' || /Manager|Logistics/.test(pos);          // Planning (all of them) and the Maintenance Manager see every section
     var role = (level === 'superintendent' || level === 'manager') ? 'superintendent' : level === 'supervisor' ? 'supervisor' : (all ? 'supervisor' : 'technician');
-    return { name: a.name, position: pos, section: a.section, group: groupOfSection(a.section), level: level, scopeAll: all, role: role,
+    return { name: a.name, site: SITE[a.name] || '', position: pos, section: a.section, group: groupOfSection(a.section), level: level, scopeAll: all, role: role,
       canApproveAll: all && (level === 'superintendent' || level === 'manager') };
   }
   function account() {
@@ -152,7 +153,7 @@ window.Data = (function () {
   function role() { return account().role; }
   function setRole(r) { /* the role now follows the signed-in account */ }
   function sectionGroup(sec) { return String(sec || '').indexOf('MECH') === 0 ? 'MECHANICAL' : sec; }
-  function inScope(sec) { var a = account(); return a.scopeAll || a.group === sectionGroup(sec); }
+  function inScope(sec) { var a = account(); if (a.site) return sec === a.site; return a.scopeAll || a.group === sectionGroup(sec); }
   function canApprove(sec) { var a = account(); return (a.level === 'superintendent' || a.level === 'manager') && (a.scopeAll || a.group === sectionGroup(sec)); }
   // "R. Valledor": the short technician name used by the sample SAP work orders
   function techKey(name) { var p = String(name || '').replace(/\s+Jr\.?$/, '').split(/\s+/); return p.length > 1 ? p[0].charAt(0) + '. ' + p[p.length - 1] : name; }
@@ -352,6 +353,21 @@ window.Data = (function () {
     return db.manpower.filter(function (r) { return r.by === me; }).filter(function (r) { return (r.status === 'Approved' || r.status === 'Rejected' || r.status === 'Sent to BPPMS') && r.decidedWhen && r.noticeSeen === false; })
       .sort(function (a, b) { return String(b.decidedWhen).localeCompare(String(a.decidedWhen)); });
   }
+  var PRA_OLD = { 'Rejected': 'Returned to requestor', 'Pending': 'Pending approval', 'Pending conversion': 'Approved', 'Converted': 'PR Created' };   // names used before the final status list
+  function prApprovals() { return clone(window.SAP.prApprovals).concat(clone(db.prApprovals || [])).map(function (r) { r.status = PRA_OLD[r.status] || r.status; var cv = (db.praConv || {})[r.id]; if (cv) r.conv = cv; var ed = (db.praEdits || {})[r.id]; if (ed) Object.keys(ed).forEach(function (k) { r[k] = ed[k]; }); var d = (db.praDecisions || {})[r.id]; if (d) { r.status = PRA_OLD[d.status] || d.status; r.io = d.io; r.remarks = d.remarks || ''; } if (r.conv && r.status === 'Approved') r.status = 'For PR conversion'; var pp = (db.praPr || {})[r.id]; if (pp) { r.status = 'PR Created'; r.prNo = pp.no; r.prItem = pp.item; } return r; }); }
+  function decidePrApproval(id, status, io, remarks) { db.praDecisions = db.praDecisions || {}; db.praDecisions[id] = { status: status, io: io || '', remarks: remarks || '', by: account().name, when: now() }; save(); }
+  function requestPrConversion(id, res, items) { db.praConv = db.praConv || {}; db.praConv[id] = { res: res, items: items, by: account().name, when: now() }; save(); }
+  function praSeen(key) { var m = (db.praSeen || {})[account().name]; return !!(m && m[key]); }
+  function markPraSeen(key) { db.praSeen = db.praSeen || {}; var n = account().name; db.praSeen[n] = db.praSeen[n] || {}; db.praSeen[n][key] = 1; save(); }
+  function prItemExists(no, item) { var it = String(item).replace(/^0+/, ''), hit = function (p, i) { return String(p) === String(no) && String(i).replace(/^0+/, '') === it; }; return window.SAP.purchaseRequests.some(function (x) { return hit(x.pr, x.item); }) || Object.keys(db.praPr || {}).some(function (k) { return hit(db.praPr[k].no, db.praPr[k].item); }); }
+  function convertToPr(id, no, item) { db.praPr = db.praPr || {}; db.praPr[id] = { no: no, item: item, by: account().name, when: now() }; save(); }
+  function editPrApproval(id, f) { db.praEdits = db.praEdits || {}; db.praEdits[id] = f; save(); }
+  function addPrApproval(r) {   // a supervisor's PR approval request; the Superintendent sets the IO when approving
+    db.prApprovals = db.prApprovals || [];
+    var n = window.SAP.prApprovals.length + db.prApprovals.length + 1;
+    r.id = 'PRA-' + window.SAP.today.slice(0, 4) + '-' + ('000' + n).slice(-4); r.date = window.SAP.today; r.by = account().name; r.status = 'Pending approval'; r.io = '';
+    db.prApprovals.push(r); save(); return r;
+  }
   function markNoticeSeen(id) { var me = account().name; db.manpower.forEach(function (r) { if (r.id === id && r.by === me && r.noticeSeen === false) r.noticeSeen = true; }); save(); }
   function markNoticesSeen() { var me = account().name; db.manpower.forEach(function (r) { if (r.by === me && r.noticeSeen === false) r.noticeSeen = true; }); save(); }
   /* Email addresses are added to window.SAP.users.accounts as email: "name@company.com" at go-live. */
@@ -489,7 +505,7 @@ window.Data = (function () {
     remarks: remarks, addRemark: addRemark, record: record, saveRecord: saveRecord,
     manpowerPositions: function () { return MP_POS.map(function (p) { return { pos: p[0] }; }); },
     manpowerStd: MP_STD, manpowerNormalHours: MP_NORMAL_HOURS,
-    bppmsTo: bppmsTo, setBppmsTo: setBppmsTo, emailSignoff: emailSignoff, manpowerNotices: manpowerNotices, emailOf: emailOf, ccFor: ccFor, reload: reload, approvalAlerts: approvalAlerts, markAlertSeen: markAlertSeen, planningAlerts: planningAlerts, markPlanningSeen: markPlanningSeen, inchargeNotices: inchargeNotices, markInchargeSeen: markInchargeSeen, markNoticesSeen: markNoticesSeen, markNoticeSeen: markNoticeSeen, setEmailDraft: setEmailDraft, setEmailSignoff: setEmailSignoff, decideManpower: decideManpower, updateManpower: updateManpower, sendToBppms: sendToBppms, budgetOf: budgetOf, requestSections: requestSections, addBudget: addBudget, budgetLog: budgetLog, people: people, manpowerFor: manpowerFor, budgetKey: budgetKey, budgetGroups: budgetGroups, budgetLabel: budgetLabel, budgetSet: budgetSet, setBudget: setBudget, committed: committed, budgetYears: budgetYears,
+    bppmsTo: bppmsTo, setBppmsTo: setBppmsTo, emailSignoff: emailSignoff, manpowerNotices: manpowerNotices, emailOf: emailOf, ccFor: ccFor, reload: reload, approvalAlerts: approvalAlerts, markAlertSeen: markAlertSeen, planningAlerts: planningAlerts, markPlanningSeen: markPlanningSeen, inchargeNotices: inchargeNotices, markInchargeSeen: markInchargeSeen, prApprovals: prApprovals, addPrApproval: addPrApproval, editPrApproval: editPrApproval, convertToPr: convertToPr, praSeen: praSeen, markPraSeen: markPraSeen, prItemExists: prItemExists, requestPrConversion: requestPrConversion, decidePrApproval: decidePrApproval, markNoticesSeen: markNoticesSeen, markNoticeSeen: markNoticeSeen, setEmailDraft: setEmailDraft, setEmailSignoff: setEmailSignoff, decideManpower: decideManpower, updateManpower: updateManpower, sendToBppms: sendToBppms, budgetOf: budgetOf, requestSections: requestSections, addBudget: addBudget, budgetLog: budgetLog, people: people, manpowerFor: manpowerFor, budgetKey: budgetKey, budgetGroups: budgetGroups, budgetLabel: budgetLabel, budgetSet: budgetSet, setBudget: setBudget, committed: committed, budgetYears: budgetYears,
     calcManpower: calcManpower, classifyTime: classifyTime, manpowerRequests: manpowerRequests, submitManpower: submitManpower, mpDays: mpDays, holidayOf: holiday, mpIsNight: isNightStart,
     simulateSap: simulateSap, reset: reset, rules: rules
   };
