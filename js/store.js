@@ -354,14 +354,50 @@ window.Data = (function () {
       .sort(function (a, b) { return String(b.decidedWhen).localeCompare(String(a.decidedWhen)); });
   }
   var PRA_OLD = { 'Rejected': 'Returned to requestor', 'Pending': 'Pending approval', 'Pending conversion': 'Approved', 'Converted': 'PR Created' };   // names used before the final status list
-  function prApprovals() { return clone(window.SAP.prApprovals).concat(clone(db.prApprovals || [])).map(function (r) { r.status = PRA_OLD[r.status] || r.status; var cv = (db.praConv || {})[r.id]; if (cv) r.conv = cv; var ed = (db.praEdits || {})[r.id]; if (ed) Object.keys(ed).forEach(function (k) { r[k] = ed[k]; }); var d = (db.praDecisions || {})[r.id]; if (d) { r.status = PRA_OLD[d.status] || d.status; r.io = d.io; r.remarks = d.remarks || ''; } if (r.conv && r.status === 'Approved') r.status = 'For PR conversion'; var pp = (db.praPr || {})[r.id]; if (pp) { r.status = 'PR Created'; r.prNo = pp.no; r.prItem = pp.item; } return r; }); }
-  function decidePrApproval(id, status, io, remarks) { db.praDecisions = db.praDecisions || {}; db.praDecisions[id] = { status: status, io: io || '', remarks: remarks || '', by: account().name, when: now() }; save(); }
-  function requestPrConversion(id, res, items) { db.praConv = db.praConv || {}; db.praConv[id] = { res: res, items: items, by: account().name, when: now() }; save(); }
+  function prApprovals() { return clone(window.SAP.prApprovals).concat(clone(db.prApprovals || [])).map(function (r) { r.status = PRA_OLD[r.status] || r.status; var cv = (db.praConv || {})[r.id]; if (cv) r.conv = cv; var ed = (db.praEdits || {})[r.id]; if (ed) Object.keys(ed).forEach(function (k) { r[k] = ed[k]; }); var d = (db.praDecisions || {})[r.id]; if (d) { r.status = PRA_OLD[d.status] || d.status; r.io = d.io; r.remarks = d.remarks || ''; } if (r.conv && r.status === 'Approved') r.status = 'For PR conversion'; var pp = (db.praPr || {})[r.id]; if (pp) { r.status = 'PR Created'; r.prNo = pp.no; r.prItem = pp.item; } return praSap(r); }); }
+  // Once a PR exists, SAP is the reference: the PR_Item tells whether it became a PO and whether the PO is delivered.
+  function praSap(r) {
+    if (!r.prNo || r.status !== 'PR Created') return r;
+    var n = function (x) { return String(x).replace(/^0+/, ''); }, S = window.SAP;
+    var pri = (S.purchaseRequests || []).filter(function (x) { return x.pr === r.prNo && n(x.item) === n(r.prItem); })[0];
+    if (!pri || !pri.po) return r;
+    var pos = (S.purchaseOrders || []).filter(function (x) { return x.po === pri.po && x.pr === r.prNo; }), poi = pos.filter(function (x) { return n(x.item) === n(r.prItem); })[0] || pos[0];
+    r.poNo = pri.po; r.poItem = poi ? n(poi.item) : n(r.prItem); r.status = 'Converted to PO';
+    if (poi) {
+      r.rec = poi.rec || 0; r.poQty = poi.qty; if (poi.qty > 0 && r.rec >= poi.qty) r.status = 'Delivered';
+      if (poi.price != null) {   // the PO price is final: it replaces the requested price, and so the committed budget
+        r.reqPrice = r.price != null ? r.price : r.qty ? r.amount / r.qty : r.amount; r.reqAmount = r.amount;
+        var q = r.qty || poi.qty || 1; r.price = poi.price; r.amount = poi.price * q; if (!r.qty && poi.qty) r.qty = poi.qty;
+      }
+    }
+    return r;
+  }
+  // The lifecycle is strict: a request can only move to the next allowed status, so no step is skipped.
+  var PRA_NEXT = { 'Pending approval': ['Approved', 'Returned to requestor'], 'Approved': ['Approved', 'Pending approval'], 'Returned to requestor': ['Pending approval'] };
+  function praOne(id) { return prApprovals().filter(function (x) { return x.id === id; })[0]; }
+  function decidePrApproval(id, status, io, remarks) { var r = praOne(id); if (!r || (PRA_NEXT[r.status] || []).indexOf(status) < 0) return false; db.praDecisions = db.praDecisions || {}; db.praDecisions[id] = { status: status, io: io || '', remarks: remarks || '', by: account().name, when: now() }; save(); return true; }
+  function requestPrConversion(id, res, items) { var r = praOne(id); if (!r || r.status !== 'Approved' || !r.mat || r.conv) return false; db.praConv = db.praConv || {}; db.praConv[id] = { res: res, items: items, by: account().name, when: now() }; save(); return true; }
   function praSeen(key) { var m = (db.praSeen || {})[account().name]; return !!(m && m[key]); }
   function markPraSeen(key) { db.praSeen = db.praSeen || {}; var n = account().name; db.praSeen[n] = db.praSeen[n] || {}; db.praSeen[n][key] = 1; save(); }
   function prItemExists(no, item) { var it = String(item).replace(/^0+/, ''), hit = function (p, i) { return String(p) === String(no) && String(i).replace(/^0+/, '') === it; }; return window.SAP.purchaseRequests.some(function (x) { return hit(x.pr, x.item); }) || Object.keys(db.praPr || {}).some(function (k) { return hit(db.praPr[k].no, db.praPr[k].item); }); }
-  function convertToPr(id, no, item) { db.praPr = db.praPr || {}; db.praPr[id] = { no: no, item: item, by: account().name, when: now() }; save(); }
-  function editPrApproval(id, f) { db.praEdits = db.praEdits || {}; db.praEdits[id] = f; save(); }
+  function praTimeline(r) {
+    var ev = [], d = (db.praDecisions || {})[r.id], cv = (db.praConv || {})[r.id], pp = (db.praPr || {})[r.id];
+    if (d) ev.push({ l: d.status === 'Approved' ? 'Approved' : d.status === 'Pending approval' ? 'Approval cancelled' : 'Returned to requestor', who: d.by, when: d.when, note: d.status === 'Approved' ? (d.io ? 'IO ' + d.io : '') : d.remarks ? 'Remarks: ' + d.remarks : '' });
+    else if (r.status !== 'Pending approval') ev.push({ l: r.status === 'Returned to requestor' ? 'Returned to requestor' : 'Approved', note: r.status === 'Returned to requestor' ? (r.remarks ? 'Remarks: ' + r.remarks : '') : r.io ? 'IO ' + r.io : '' });
+    if (r.qtyChange) ev.push({ l: 'Qty changed', who: r.qtyChange.by, when: r.qtyChange.when, note: r.qtyChange.from + ' → ' + r.qtyChange.to });
+    if (cv) ev.push({ l: 'PR conversion requested', who: cv.by, when: cv.when, note: 'Reservation ' + cv.res + ' · Item ' + cv.items });
+    if (pp) ev.push({ l: 'PR ' + pp.no + ' created', who: pp.by, when: pp.when, note: 'Item ' + pp.item });
+    else if (r.prNo) ev.push({ l: 'PR ' + r.prNo + ' created', note: 'Item ' + String(r.prItem).replace(/^0+/, '') });
+    if (r.poNo) ev.push({ l: 'Converted to PO', note: 'PO ' + r.poNo + ' · Item ' + r.poItem + ' (from SAP)' + (r.reqPrice != null && r.reqPrice !== r.price ? ' · Unit price ' + r.reqPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) + ' → ' + r.price.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '') });
+    if (r.status === 'Delivered') ev.push({ l: 'Delivered', note: 'Received ' + r.rec + ' of ' + r.poQty + ' (from SAP)' });
+    return ev;
+  }
+  function convertToPr(id, no, item) { var r = praOne(id); if (!r || !(r.status === 'For PR conversion' || (r.status === 'Approved' && !r.mat))) return false; db.praPr = db.praPr || {}; db.praPr[id] = { no: no, item: item, by: account().name, when: now() }; save(); return true; }
+  function praDupe(mat) {   // an active request for the same stock material (not returned, not finished)
+    return !mat ? null : prApprovals().filter(function (x) { return x.mat === mat && ['Pending approval', 'Approved', 'For PR conversion', 'PR Created'].indexOf(x.status) >= 0; })[0] || null;
+  }
+  function editPrApproval(id, f) { db.praEdits = db.praEdits || {}; var o = db.praEdits[id] || {}; Object.keys(f).forEach(function (k) { o[k] = f[k]; }); db.praEdits[id] = o; save(); }
+  function setPraQty(id, qty, amount, from) { editPrApproval(id, { qty: qty, amount: amount, qtyChange: { from: from, to: qty, by: account().name, when: now() } }); }
   function addPrApproval(r) {   // a supervisor's PR approval request; the Superintendent sets the IO when approving
     db.prApprovals = db.prApprovals || [];
     var n = window.SAP.prApprovals.length + db.prApprovals.length + 1;
@@ -505,7 +541,7 @@ window.Data = (function () {
     remarks: remarks, addRemark: addRemark, record: record, saveRecord: saveRecord,
     manpowerPositions: function () { return MP_POS.map(function (p) { return { pos: p[0] }; }); },
     manpowerStd: MP_STD, manpowerNormalHours: MP_NORMAL_HOURS,
-    bppmsTo: bppmsTo, setBppmsTo: setBppmsTo, emailSignoff: emailSignoff, manpowerNotices: manpowerNotices, emailOf: emailOf, ccFor: ccFor, reload: reload, approvalAlerts: approvalAlerts, markAlertSeen: markAlertSeen, planningAlerts: planningAlerts, markPlanningSeen: markPlanningSeen, inchargeNotices: inchargeNotices, markInchargeSeen: markInchargeSeen, prApprovals: prApprovals, addPrApproval: addPrApproval, editPrApproval: editPrApproval, convertToPr: convertToPr, praSeen: praSeen, markPraSeen: markPraSeen, prItemExists: prItemExists, requestPrConversion: requestPrConversion, decidePrApproval: decidePrApproval, markNoticesSeen: markNoticesSeen, markNoticeSeen: markNoticeSeen, setEmailDraft: setEmailDraft, setEmailSignoff: setEmailSignoff, decideManpower: decideManpower, updateManpower: updateManpower, sendToBppms: sendToBppms, budgetOf: budgetOf, requestSections: requestSections, addBudget: addBudget, budgetLog: budgetLog, people: people, manpowerFor: manpowerFor, budgetKey: budgetKey, budgetGroups: budgetGroups, budgetLabel: budgetLabel, budgetSet: budgetSet, setBudget: setBudget, committed: committed, budgetYears: budgetYears,
+    bppmsTo: bppmsTo, setBppmsTo: setBppmsTo, emailSignoff: emailSignoff, manpowerNotices: manpowerNotices, emailOf: emailOf, ccFor: ccFor, reload: reload, approvalAlerts: approvalAlerts, markAlertSeen: markAlertSeen, planningAlerts: planningAlerts, markPlanningSeen: markPlanningSeen, inchargeNotices: inchargeNotices, markInchargeSeen: markInchargeSeen, prApprovals: prApprovals, addPrApproval: addPrApproval, editPrApproval: editPrApproval, setPraQty: setPraQty, convertToPr: convertToPr, praTimeline: praTimeline, praDupe: praDupe, praSeen: praSeen, markPraSeen: markPraSeen, prItemExists: prItemExists, requestPrConversion: requestPrConversion, decidePrApproval: decidePrApproval, markNoticesSeen: markNoticesSeen, markNoticeSeen: markNoticeSeen, setEmailDraft: setEmailDraft, setEmailSignoff: setEmailSignoff, decideManpower: decideManpower, updateManpower: updateManpower, sendToBppms: sendToBppms, budgetOf: budgetOf, requestSections: requestSections, addBudget: addBudget, budgetLog: budgetLog, people: people, manpowerFor: manpowerFor, budgetKey: budgetKey, budgetGroups: budgetGroups, budgetLabel: budgetLabel, budgetSet: budgetSet, setBudget: setBudget, committed: committed, budgetYears: budgetYears,
     calcManpower: calcManpower, classifyTime: classifyTime, manpowerRequests: manpowerRequests, submitManpower: submitManpower, mpDays: mpDays, holidayOf: holiday, mpIsNight: isNightStart,
     simulateSap: simulateSap, reset: reset, rules: rules
   };

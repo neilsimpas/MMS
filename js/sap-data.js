@@ -147,7 +147,7 @@ window.SAP.prApprovals = [
   { id: 'PRA-2026-0004', date: '2026-10-13', sec: 'MECH-STG', text: 'Turbine lube oil filter elements', amount: 75600, by: 'Ronnel A. Flores', status: 'Pending approval', io: '' },
   { id: 'PRA-2026-0003', date: '2026-10-12', sec: 'MECH-BLR', text: 'ID fan DE bearing and labyrinth seal set', mat: '20341872', qty: 1, uom: 'Set', price: 241400, amount: 241400, by: 'Ronnel A. Flores', status: 'Approved', io: '18000131' },
   { id: 'PRA-2026-0002', date: '2026-10-10', sec: 'MECH-CHP', text: 'Crusher hammers, ring granulator', amount: 151200, by: 'Ronnel A. Flores', status: 'Approved', io: '18000132' },
-  { id: 'PRA-2026-0001', date: '2026-10-08', sec: 'MECH-BLR', text: 'Bed ash cooler drive chain set', amount: 73500, by: 'Ronnel A. Flores', status: 'PR Created', io: '18000131' }
+  { id: 'PRA-2026-0001', date: '2026-10-08', sec: 'MECH-BLR', text: 'Bed ash cooler drive chain set', amount: 73500, by: 'Ronnel A. Flores', status: 'PR Created', io: '18000131', prNo: '1100045807', prItem: '10' }
 ];
 
 window.SAP.materialsAsOf = '2026-10-19 10:34';

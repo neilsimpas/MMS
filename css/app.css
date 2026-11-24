@@ -36,6 +36,7 @@ h1{margin:0;font-size:26px;font-weight:600}h2{margin:0;font-size:17px;font-weigh
 select,input[type=text],input[type=search],input[type=date],input[type=time],input[type=number],textarea{border:1px solid var(--field);border-radius:8px;padding:0 12px;font:inherit;background:#fff;color:var(--text);height:44px;max-width:100%}
 textarea{padding:10px 12px;height:auto;width:100%;resize:vertical}
 select:disabled,textarea:disabled,button:disabled{cursor:not-allowed}
+.vmid td,.vmid th{vertical-align:middle}
 .tablecard{background:var(--card);border:1px solid var(--border);border-radius:12px}
 .scroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse;min-width:900px}

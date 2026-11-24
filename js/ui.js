@@ -35,13 +35,13 @@
 
   /* ---------- notification bell (upper right): supervisors see decisions, superintendents see requests waiting for approval ---------- */
   function praBellItems(withRead) {
-    var a = D.account(), out = [], SUP = { 'Approved': 'Request approved', 'Returned to requestor': 'Request returned', 'PR Created': 'PR created', 'Converted to PO': 'PO created' }, sub = function (id, tx) { return '<div class="small muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(id) + (tx ? ' · ' + esc(tx) : '') + '</div>'; };
+    var a = D.account(), out = [], SUP = { 'Approved': 'Request approved', 'Returned to requestor': 'Request returned', 'PR Created': 'PR created', 'Converted to PO': 'PO created', 'Delivered': 'Delivered' }, sub = function (id, tx) { return '<div class="small muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(id) + (tx ? ' · ' + esc(tx) : '') + '</div>'; };
     D.prApprovals().filter(function (r) { return D.inScope(r.sec); }).forEach(function (r) {
       var key = r.id + '|' + r.status, t = '';
       var seen = D.praSeen(key); if (seen && !withRead) return;
       if (a.level === 'superintendent' && r.status === 'Pending approval') t = '<b>For your approval</b>' + sub(r.id, r.text);
       else if (a.level === 'logistics' && r.status === 'For PR conversion') t = '<b>For PR conversion</b>' + sub(r.id, r.text);
-      else if (a.level === 'supervisor' && SUP[r.status]) t = '<b>' + SUP[r.status] + '</b>' + sub(r.id, r.text);
+      else if (a.level === 'supervisor' && SUP[r.status]) t = '<b>' + SUP[r.status] + '</b>' + sub(r.id, r.text) + (r.status === 'Approved' && r.qtyChange ? '<div class="small" style="color:#B45309">Qty changed from ' + r.qtyChange.from + ' to ' + r.qtyChange.to + '</div>' : '');
       if (t) out.push({ id: key, kind: 'pra', text: t, when: r.date, read: seen });
     });
     return out;
@@ -470,7 +470,7 @@
     var asof = D.materialsAsOf(); 
     return shell('mm', '<div class="f"><span class="small muted">Material Master</span><h1>All Materials</h1></div>' +
       '<div class="tablecard"><div class="filters"><div class="f"><h2>Material Search (ZMM60)</h2><span class="small muted">Price per unit from SAP</span></div>' + searchBox('mm', f.q) + '</div>' +
-      '<div class="scroll"><table style="min-width:760px"><thead><tr><th>Material number ▲</th><th style="width:100%">Material description</th><th style="text-align:right">Price per unit</th><th>Unit</th></tr></thead><tbody>' + (body || '<tr><td colspan="4" class="empty">No materials match these filters.</td></tr>') + '</tbody></table></div>' +
+      '<div class="scroll"><table style="min-width:760px"><thead><tr><th>Material number ▲</th><th style="width:100%">Material description</th><th style="text-align:right">Price per unit</th><th>Unit</th></tr></thead><tbody>' + (body || '<tr><td colspan="4" class="empty">No materials match your search.' + (f.q ? ' <button type="button" class="btn" data-act="clear-q" data-k="mm" style="height:32px;margin-left:8px">Clear search</button>' : '') + '</td></tr>') + '</tbody></table></div>' +
       '<div class="row between" style="padding:12px 18px;border-top:1px solid var(--line)"><span class="small muted">Showing ' + shown.length + ' of ' + rows.length + ' materials · Prices in PHP · Sample data</span>' + (shown.length < rows.length ? '<button type="button" class="btn" data-act="more-materials">Show more</button>' : '') + '</div></div>');
   }
 
@@ -503,6 +503,7 @@
     if (stock) {
       if (!m) return 'Pick a material number from the list.';
       if (!(qty > 0)) return 'Enter the quantity.';
+      var dup = D.praDupe(m.mat); if (dup) return 'A request for this material already exists: ' + dup.id + ' (' + dup.status + ').';
       r = { sec: f.sec, type: 'Stock', mat: m.mat, text: m.text.slice(0, 40), long: m.text, qty: qty, uom: m.uom, price: m.price, cur: 'PHP', amount: (m.price || 0) * qty };
     } else {
       var unit = parseFloat(f.unit);
@@ -515,10 +516,18 @@
     }
     D.addPrApproval(r); ui.prf = { open: false }; say(r.id + ' submitted.'); return '';
   }
-  var PRA_STATUS = { 'Pending approval': ['#FEF3C7', '#78350F'], 'Approved': ['#DBEAFE', '#1E40AF'], 'For PR conversion': ['#FFEDD5', '#9A3412'], 'PR Created': ['#E0E7FF', '#3730A3'], 'Converted to PO': ['#DCFCE7', '#14532D'], 'Returned to requestor': ['#FEE2E2', '#991B1B'] };
+  var PRA_STATUS = { 'Pending approval': ['#FEF3C7', '#78350F'], 'Approved': ['#DBEAFE', '#1E40AF'], 'For PR conversion': ['#FFEDD5', '#9A3412'], 'PR Created': ['#E0E7FF', '#3730A3'], 'Converted to PO': ['#DCFCE7', '#14532D'], 'Delivered': ['#CCFBF1', '#115E59'], 'Returned to requestor': ['#FEE2E2', '#991B1B'] };
+  var STALE = 'This request has changed. Close this window and open it again.';
+  var ICO = {
+    pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
+    eye: '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>', check: '<path d="M20 6 9 17l-5-5"/>',
+    doc: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/>', plus: '<path d="M12 5v14M5 12h14"/>'
+  };
+  function menuItem(act, id, ic, label, red) { return '<button type="button" role="menuitem" data-act="' + act + '" data-id="' + esc(id) + '" style="display:flex;align-items:center;gap:10px;width:100%;border:none;background:none;cursor:pointer;text-align:left;min-height:40px;padding:0 12px;font:inherit;font-size:14px;color:' + (red ? '#B91C1C' : '#374151') + '"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ic + '</svg>' + label + '</button>'; }
   function isApprover() { return D.account().level === 'superintendent'; }
   function ioList() { var me = D.account(); return window.SAP.ios.filter(function (x) { return me.scopeAll || me.group === x.group; }); }
-  function ioLeft(x) { return x.budget - D.prApprovals().filter(function (r) { return r.io === x.io && ['Approved', 'For PR conversion', 'PR Created', 'Converted to PO'].indexOf(r.status) >= 0; }).reduce(function (s, r) { return s + r.amount; }, 0); }
+  function ioLeft(x) { return x.budget - D.prApprovals().filter(function (r) { return r.io === x.io && ['Approved', 'For PR conversion', 'PR Created', 'Converted to PO', 'Delivered'].indexOf(r.status) >= 0; }).reduce(function (s, r) { return s + r.amount; }, 0); }
+  function newAmt(r) { var q = parseFloat(ui.pra.aq); return r.qty && q > 0 ? q * (r.amount / r.qty) : r.amount; }
   function prReviewHtml() {
     var r = D.prApprovals().filter(function (x) { return x.id === ui.pra.rev; })[0]; if (!r) return '';
     var row = function (k, v) { return '<div style="display:flex;gap:16px;padding:6px 0;min-height:33px"><dt style="width:140px;flex:none;line-height:21px" class="muted">' + k + '</dt><dd style="margin:0;flex:1">' + v + '</dd></div>'; };
@@ -526,13 +535,15 @@
     var ioSel = '<div class="field"><label for="pra-io">IO <span class="req">*</span></label><select id="pra-io" data-filter="pra.io">' + opts + '</select></div>', mid = '', btns = '', extra = '';
     var bt = function (cls, act, label) { return '<button type="button" class="btn' + cls + '" data-act="' + act + '" data-id="' + esc(r.id) + '">' + label + '</button>'; };
     var stockR = !!r.mat, hideDl = false;
+    var bal = function () { var io = ioList().filter(function (x) { return x.io === ui.pra.io; })[0]; if (!io) return ''; var after = ioLeft(io) - (r.status === 'Approved' && r.io === io.io ? 0 : r.status === 'Pending approval' ? newAmt(r) : r.amount); return '<div class="small" style="color:' + (after < 0 ? '#B91C1C' : 'inherit') + '">IO balance after approval: PHP ' + amt(after) + '</div>'; };
+    var tev = D.praTimeline(r), tl = !tev.length ? '' : '<div class="sep small" style="gap:6px">' + tev.map(function (e) { return '<div><b>' + esc(e.l) + '</b>' + (e.who ? ' · ' + esc(e.who) : '') + (e.when ? ' · ' + fmtFull(e.when) : '') + '</div>'; }).join('') + '</div>';
     if (D.account().level === 'logistics') {
       if (ui.pra.pr && r.status === 'For PR conversion') {
         hideDl = true;
         mid = '<div class="field"><label for="pr-no">PR number <span class="req">*</span></label><input type="text" id="pr-no" data-pra="pf.no" value="' + esc(ui.pra.pf.no) + '"></div><div class="field"><label for="pr-item">Item number <span class="req">*</span></label><input type="text" id="pr-item" data-pra="pf.item" value="' + esc(ui.pra.pf.item) + '"></div>';
         btns = bt(' primary', 'pra-pr-send', 'Convert to PR');
       } else {
-        extra = (r.io ? row('IO', esc(r.io)) : '') + (r.conv ? row('Reservation #', esc(r.conv.res)) + row('Item #', esc(r.conv.items)) : '') + (r.prNo ? row('PR #', esc(r.prNo)) + row('PR item', esc(r.prItem)) : '');
+        extra = (r.io ? row('IO', esc(r.io)) : '');
         if (r.status === 'For PR conversion') btns = bt(' primary', 'pra-pr', 'Convert to PR');
       }
     } else if (!isApprover()) {
@@ -560,32 +571,46 @@
         mid = '<div class="field"><label for="cv-res">Reservation number <span class="req">*</span></label><input type="text" id="cv-res" data-pra="cv.res" value="' + esc(ui.pra.cvf.res) + '"></div><div class="field"><label for="cv-items">Item number/s <span class="req">*</span></label><input type="text" id="cv-items" data-pra="cv.items" value="' + esc(ui.pra.cvf.items) + '"></div>';
         btns = bt(' primary', 'pra-conv-send', 'Submit request');
       } else {
-        extra = (r.io ? row('IO', esc(r.io)) : '') + (r.conv ? row('Reservation #', esc(r.conv.res)) + row('Item #', esc(r.conv.items)) : '') + (r.prNo ? row('PR #', esc(r.prNo)) + row('PR item', esc(r.prItem)) : '') + rem;
+        extra = (r.io ? row('IO', esc(r.io)) : '') + rem;
         if (r.status === 'Approved' && stockR && !r.conv) btns = bt(' primary', 'pra-conv', 'Request for PR conversion');
         else if (r.status === 'Approved' && !stockR) btns = bt(' primary', 'pra-cp', 'Create PR') + bt('', 'pra-edit', 'Edit');
         else if (['Pending approval', 'Returned to requestor'].indexOf(r.status) >= 0) btns = bt(' primary', 'pra-edit', 'Edit');
       }
     } else if (r.status === 'Pending approval') {
-      if (ui.pra.ret) {
-        mid = '<div class="field"><label for="pra-rem">Remarks <span class="req">*</span></label><textarea id="pra-rem" rows="3" data-pra="rem">' + esc(ui.pra.rem || '') + '</textarea></div>';
-        btns = bt(' primary', 'pra-reject', 'Return to requestor');
-      } else {
-        mid = ioSel;
-        btns = bt(' primary', 'pra-approve', 'Approve') + bt('', 'pra-return', 'Return');
+      if (ui.pra.ret) { hideDl = true; mid = '<div class="field"><label for="pra-rem">Remarks <span class="req">*</span></label><textarea id="pra-rem" rows="3" data-pra="rem" placeholder="Tell the requestor what to fix">' + esc(ui.pra.rem || '') + '</textarea></div>'; btns = bt(' primary', 'pra-reject', 'Return to requestor') + bt('', 'pra-ret-no', 'Back'); }
+      else {
+      mid = (ui.pra.cq ? '<div class="field"><label for="pra-qty">New qty</label><input type="number" id="pra-qty" min="0" step="any" data-pra="aq" value="' + esc(ui.pra.aq) + '"><div class="small muted" id="pra-nt">New total: PHP ' + amt(newAmt(r)) + '</div></div>' : '') + ioSel + bal();
+      var mi = function (act, ic, label, red) { return menuItem(act, r.id, ic, label, red); }, pen = ICO.pen, undo = ICO.undo;
+      var dmi = (!r.qty ? '' : (ui.pra.cq ? mi('pra-cq-no', pen, 'Keep original qty') : mi('pra-cq', pen, 'Change qty')) + '<div style="height:1px;background:var(--line);margin:2px 8px"></div>') + mi('pra-return', undo, 'Return to requestor', true);
+      btns = '<button type="button" class="btn primary" data-act="pra-approve" data-id="' + esc(r.id) + '" style="flex:1">Approve</button><div style="position:relative">' + bt('', 'pra-dm', 'More ▾') + (ui.pra.dm ? '<div role="menu" style="position:absolute;right:0;bottom:calc(100% + 8px);width:210px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;z-index:5">' + dmi + '</div>' : '') + '</div>';
       }
     } else if (r.status === 'Approved') {
-      if (ui.pra.edit) { mid = ioSel; btns = bt(' primary', 'pra-save', 'Save') + bt('', 'pra-cancel', 'Cancel approval'); }
+      if (ui.pra.edit && ui.pra.cc) { mid = '<div>Cancelling returns ' + esc(r.id) + ' to Pending approval and releases PHP ' + amt(r.amount) + ' back to IO ' + esc(r.io) + '.</div>'; btns = bt(' primary', 'pra-cancel', 'Cancel approval of ' + esc(r.id)) + bt('', 'pra-cc-no', 'Keep approval'); }
+      else if (ui.pra.edit) { mid = ioSel + bal(); btns = bt(' primary', 'pra-save', 'Save') + bt('', 'pra-cc', 'Cancel approval of ' + esc(r.id)); }
       else { extra = row('IO', esc(r.io || '')); btns = bt(' primary', 'pra-edit', 'Edit'); }
     } else {
       extra = (r.io ? row('IO', esc(r.io)) : '') + (r.status === 'Returned to requestor' && r.remarks ? row('Remarks', esc(r.remarks)) : '');
     }
     return '<div class="overlay" data-overlay style="align-items:center"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pra-title" style="max-width:520px;gap:0;padding:0;overflow:hidden">' +
-      '<div class="row between" style="padding:20px 24px;border-bottom:1px solid var(--line)"><h2 id="pra-title" style="font-size:19px">' + esc(r.id) + '</h2><button type="button" class="btn" style="border:none;font-size:22px;width:44px;padding:0" aria-label="Close" data-act="pra-close">×</button></div>' +
-      '<div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px;flex:1">' + (hideDl ? '' : '<dl style="margin:0">' + row('Material #', esc(r.mat || '')) + row('Description', esc(r.text)) + (r.long ? row('Long description', esc(r.long)) : '') + row('Qty', r.qty ? esc(r.qty + ' ' + (r.uom || '')) : '') + row('Total Amount', 'PHP ' + amt(r.amount)) + row('Requested by', esc(r.by)) + extra + '</dl>') +
-      mid + (ui.pra.err ? '<div class="err" role="alert">' + esc(ui.pra.err) + '</div>' : '') + '</div>' +
+      '<div class="row between" style="padding:20px 24px 14px;align-items:flex-start"><div><h2 id="pra-title" style="font-size:19px">' + esc(r.text) + '</h2><div class="small muted" style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap">' + (r.mat ? '<span>Material # ' + esc(r.mat) + '</span><span>|</span>' : '') + '<span>' + esc(r.id) + '</span><span>|</span>' + pill(r.status, PRA_STATUS[r.status] || GREY) + '</div></div><button type="button" class="btn" style="border:none;font-size:22px;width:44px;padding:0" aria-label="Close" data-act="pra-close">×</button></div>' +
+      (hideDl ? '' : '<div role="tablist" style="display:flex;gap:20px;padding:0 24px;border-bottom:1px solid var(--line)">' + [['item', 'Item Details'], ['req', 'Request Details']].map(function (t) { var on = (ui.pra.tab || 'item') === t[0]; return '<button type="button" role="tab" aria-selected="' + on + '" data-act="pra-tab" data-t="' + t[0] + '" style="background:none;border:none;border-bottom:2px solid ' + (on ? '#3B5BDB' : 'transparent') + ';color:' + (on ? '#3B5BDB' : '#6B7280') + ';font-weight:600;font-size:14px;padding:10px 0;margin-bottom:-1px;cursor:pointer">' + t[1] + '</button>'; }).join('') + '</div>') +
+      '<div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px;flex:1">' + (hideDl ? '' : (ui.pra.tab || 'item') === 'item' ? '<dl style="margin:0">' + row('Long description', esc(r.long || r.text)) + (r.poNo && r.reqPrice != null && r.reqPrice !== r.price ? row('Valuation price', 'PHP ' + amt(r.reqPrice)) : '') + row(r.poNo ? 'Unit Price (PO)' : 'Unit Price', 'PHP ' + amt(r.price != null ? r.price : r.qty ? r.amount / r.qty : r.amount)) + row('Qty', r.qty ? esc(r.qty + ' ' + (r.uom || '')) : '') + row('Total Price', 'PHP ' + amt(r.amount)) + (extra.indexOf('>IO</dt>') < 0 ? row('IO', esc(r.io || '—')) : '') + extra + '</dl>' : '<dl style="margin:0">' + row('Requested by', esc(r.by)) + row('Section', esc(r.sec || '')) + row('Date Requested', fmtFull(r.date)) + (r.conv ? row('Reservation_Item', esc(String(r.conv.items).split(/[,;\s]+/).filter(Boolean).map(function (i) { return r.conv.res + '_' + i; }).join(', '))) : '') + (r.prNo ? row('PR_Item', esc(r.prNo + '_' + String(r.prItem).replace(/^0+/, ''))) : '') + (r.poNo ? row('PO_Item', esc(r.poNo + '_' + r.poItem)) : '') + (r.poNo && r.poQty != null ? row('Received', esc(r.rec + ' of ' + r.poQty)) : '') + '</dl><div class="sep" style="gap:12px"><b>Progress</b><div style="margin-top:4px">' + praProgress(r) + '</div></div>') +
+      mid + '<div class="err" id="pra-err" role="alert">' + esc(ui.pra.err || '') + '</div></div>' +
       (btns ? '<div class="row" style="padding:16px 24px;border-top:1px solid var(--line)">' + btns + '</div>' : '') + '</div></div>';
   }
-  function eyeBtn(act, id, extra) { return '<button type="button" class="btn" data-act="' + act + '" data-id="' + esc(id) + '" aria-label="Review" title="Review" style="height:28px;width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center;' + (extra || '') + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button>'; }
+  function eyeBtn(act, id, extra) { return '<button type="button" class="btn" data-act="' + act + '" data-id="' + esc(id) + '" aria-label="Review" title="Review" style="height:36px;width:40px;padding:0;display:inline-flex;align-items:center;justify-content:center;' + (extra || '') + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button>'; }
+  function moreBtn(id) { return '<button type="button" class="btn" data-act="pra-more" data-id="' + esc(id) + '" aria-label="More actions" aria-haspopup="menu" title="More" style="height:30px;width:34px;padding:0;display:inline-flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>'; }
+  function praProgress(r) {
+    var ev = [{ l: 'Submitted', who: r.by, when: r.date, sub: r.id }].concat(D.praTimeline(r)), cur = { 'Pending approval': 0, 'Returned to requestor': 0, 'Approved': 1, 'For PR conversion': 2, 'PR Created': 3, 'Converted to PO': 4, 'Delivered': 5 }[r.status] || 0;
+    var fut = [['Approved', 1], ['PR conversion requested', 2], ['PR created', 3], ['Converted to PO', 4], ['Delivered', 5]].filter(function (s) { return s[1] > cur && (s[1] !== 2 || r.mat); });
+    var line = '<span style="position:absolute;left:6px;top:14px;bottom:-18px;width:2px;background:var(--line)"></span>';
+    var all = ev.map(function (e) { return { l: e.l, done: true, who: e.who, when: e.when, sub: e.sub, note: e.note }; }).concat(fut.map(function (s, i) { return { l: s[0], done: false, now: i === 0 }; }));
+    return all.map(function (e, i) {
+      var dot = '<span style="position:absolute;left:0;top:3px;width:14px;height:14px;border-radius:50%;box-sizing:border-box;background:' + (e.done ? '#16A34A' : '#fff') + ';border:2px solid ' + (e.done ? '#16A34A' : e.now ? '#3B5BDB' : '#D1D5DB') + '"></span>';
+      var meta = e.done ? '<div class="small muted">' + (e.when ? fmtD(e.when) : '') + (e.who ? (e.when ? ' · ' : '') + esc(e.who) : '') + '</div>' + (e.sub ? '<div class="small muted">' + esc(e.sub) + '</div>' : '') + (e.note ? '<div class="small" style="margin-top:2px">' + esc(e.note) + '</div>' : '') : '';
+      return '<div style="position:relative;padding:0 0 ' + (i < all.length - 1 ? '18' : '0') + 'px 28px">' + (i < all.length - 1 ? line : '') + dot + '<div style="font-weight:' + (e.done || e.now ? '600' : '400') + ';color:' + (e.done ? 'inherit' : e.now ? '#3B5BDB' : '#6B7280') + '">' + esc(e.l) + '</div>' + meta + '</div>';
+    }).join('');
+  }
   function praAction(r) {
     var stock = !!r.mat;
     if (r.status === 'Pending approval') return 'Superintendent to approve';
@@ -596,20 +621,63 @@
     return '';
   }
   function viewPrConversion() {
-    var rows = D.prApprovals().filter(function (r) { return r.conv && ['For PR conversion', 'PR Created', 'Converted to PO'].indexOf(r.status) >= 0; }).sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
-    var body = rows.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.id) + '</td><td style="white-space:nowrap">' + fmtD(r.date) + '</td><td>' + esc(r.sec) + '</td><td class="mono">' + esc(r.conv.res) + '</td><td class="mono">' + esc(r.conv.items) + '</td><td class="mono">' + esc(r.mat || '') + '</td><td class="desc">' + esc(r.text) + '</td><td style="text-align:right">' + (r.qty || '') + '</td><td style="text-align:right">' + amt(r.amount) + '</td><td class="mono">' + esc(r.io || '') + '</td><td>' + pill(r.status, PRA_STATUS[r.status] || GREY) + '</td><td>' + eyeBtn('pra-review', r.id) + '</td></tr>'; }).join('');
+    var rows = D.prApprovals().filter(function (r) { return r.conv && ['For PR conversion', 'PR Created', 'Converted to PO', 'Delivered'].indexOf(r.status) >= 0; }).sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
+    var resItem = function (r) { return String(r.conv.items).split(/[,;\s]+/).filter(Boolean).map(function (i) { return r.conv.res + '_' + i; }).join(', '); };
+    var body = rows.map(function (r) { return '<tr data-act="pra-review" data-id="' + esc(r.id) + '" tabindex="0" style="cursor:pointer"><td class="mono" style="font-weight:600">' + esc(r.id.replace(/^PRA/, 'PRC')) + '</td><td style="white-space:nowrap">' + fmtD(r.date) + '</td><td class="mono">' + esc(resItem(r)) + '</td><td class="mono">' + esc(r.mat || '') + '</td><td class="desc">' + esc(r.text) + '</td><td style="text-align:right">' + (r.qty || '') + '</td><td>' + pill(r.status, PRA_STATUS[r.status] || GREY) + '</td><td class="mono">' + esc(r.poNo ? r.poNo + '_' + r.poItem : r.prNo ? r.prNo + '_' + String(r.prItem).replace(/^0+/, '') : '') + '</td><td>' + moreBtn(r.id) + '</td></tr>'; }).join('');
+    var pmr = ui.pmenu && rows.filter(function (x) { return x.id === ui.pmenu.id; })[0], pmi = pmr ? (pmr.status === 'For PR conversion' ? [['pra-m-pr', ICO.doc, 'Convert to PR']] : []).concat([['pra-review', ICO.eye, 'View details']]) : [];
+    var pm = pmr ? '<div data-pmenu role="menu" style="position:fixed;left:' + Math.max(8, ui.pmenu.x - 210) + 'px;top:' + ui.pmenu.y + 'px;width:210px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;z-index:50">' + pmi.map(function (m) { return menuItem(m[0], pmr.id, m[1], m[2]); }).join('') + '</div>' : '';
     return shell('prc', '<div class="f"><span class="small muted">Purchasing</span><h1>PR Conversion Request</h1></div>' +
-      '<div class="tablecard"><div class="scroll"><table style="min-width:900px"><thead><tr><th>Control #</th><th>Date</th><th>Section</th><th>Reservation #</th><th>Item #</th><th>Material #</th><th style="width:320px">Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Total Amount</th><th>IO</th><th>Status</th><th></th></tr></thead><tbody>' + (body || '<tr><td colspan="12" class="empty">No requests.</td></tr>') + '</tbody></table></div></div>');
+      '<div class="tablecard"><div class="scroll"><table class="vmid" style="min-width:900px"><thead><tr><th>PRC#</th><th>Date</th><th>Reservation_Item#</th><th>Material #</th><th style="width:320px">Description</th><th style="text-align:right">Qty</th><th>Status</th><th>PR/PO</th><th></th></tr></thead><tbody>' + (body || '<tr><td colspan="9" class="empty">No requests for conversion yet.</td></tr>') + '</tbody></table></div></div>' + pm);
   }
   function viewPrApproval() {
+    var pa = ui.pa = ui.pa || { q: '', st: '', sort: '', dir: 1 };
     var reqs = D.prApprovals().filter(function (r) { return D.inScope(r.sec); });
+    reqs.forEach(function (r) { r.ref = r.poNo ? r.poNo + '_' + r.poItem : r.prNo ? r.prNo + '_' + String(r.prItem).replace(/^0+/, '') : ''; });   // PO_Item once a PO exists, else PR_Item
     var count = function (st) { return reqs.filter(function (r) { return r.status === st; }).length; };
-    var rows = reqs.slice().sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
-    var cards = [['Waiting for Approval', count('Pending approval')], ['Waiting for PR creation/conversion', (count('Approved') + count('For PR conversion'))], ['Waiting for PO', count('PR Created')]];
-    var body = rows.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.id) + '</td><td style="white-space:nowrap">' + fmtD(r.date) + '</td><td class="mono">' + esc(r.mat || '') + '</td><td class="desc">' + esc(r.text) + '</td><td style="text-align:right">' + (r.qty || '') + '</td><td style="text-align:right">' + amt(r.amount) + '</td><td class="mono">' + esc(r.io || '') + '</td><td>' + pill(r.status, PRA_STATUS[r.status] || GREY) + '</td><td style="color:#B91C1C;font-size:12px;font-weight:600">' + esc(praAction(r)) + '</td>' + '<td>' + eyeBtn('pra-review', r.id) + '</td></tr>'; }).join('');
+    var sts = pa.st ? pa.st.split(',') : [], qq = pa.q.trim().toLowerCase();
+    var rows = reqs.filter(function (r) { return (!sts.length || sts.indexOf(r.status) >= 0) && (!qq || [r.id, r.mat, r.text, r.io, r.status, r.ref].join(' ').toLowerCase().indexOf(qq) >= 0); });
+    rows.sort(function (a, b) {
+      if (pa.sort) { var x = a[pa.sort], y = b[pa.sort], c = typeof x === 'number' || typeof y === 'number' ? (x || 0) - (y || 0) : String(x || '').localeCompare(String(y || ''), undefined, { numeric: true }); if (c) return c * pa.dir; }
+      return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
+    });
+    var cards = [['Waiting for Approval', count('Pending approval'), 'Pending approval'], ['Waiting for PR creation/conversion', (count('Approved') + count('For PR conversion')), 'Approved,For PR conversion'], ['Waiting for PO', count('PR Created'), 'PR Created']];
+    var fopts = Object.keys(PRA_STATUS).map(function (k) { var on = sts.indexOf(k) >= 0; return '<button type="button" role="menuitemcheckbox" aria-checked="' + on + '" data-act="pa-fs" data-v="' + esc(k) + '" style="display:flex;align-items:center;gap:10px;width:100%;border:none;background:none;cursor:pointer;text-align:left;min-height:38px;padding:0 12px;font:inherit;font-size:14px;color:#374151"><span aria-hidden="true" style="flex:none;width:16px;height:16px;border-radius:4px;box-sizing:border-box;border:1.5px solid ' + (on ? '#3B5BDB' : '#9CA3AF') + ';background:' + (on ? '#3B5BDB' : '#fff') + ';color:#fff;font-size:11px;line-height:13px;text-align:center">' + (on ? '✓' : '') + '</span><span style="flex:1">' + esc(k) + '</span><span class="muted small">' + count(k) + '</span></button>'; }).join('');
+    var fmenu = pa.fo ? '<div data-fmenu role="menu" aria-label="Filter by status" style="position:absolute;left:0;top:calc(100% + 6px);width:260px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;z-index:20"><div class="small muted" style="padding:8px 12px 4px;font-weight:600">Status</div>' + fopts + '</div>' : '';
+    var fbtn = '<div style="position:relative"><button type="button" class="btn" data-act="pa-fo" aria-haspopup="menu" aria-expanded="' + !!pa.fo + '" style="height:40px;gap:8px;display:inline-flex;align-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.5V19l4 2v-8.5z"/></svg>Filter' + (sts.length ? '<span style="background:#3B5BDB;color:#fff;border-radius:10px;font-size:12px;min-width:20px;height:20px;line-height:20px;text-align:center;padding:0 5px">' + sts.length + '</span>' : '') + '</button>' + fmenu + '</div>';
+    var th = function (label, k, right) { var on = pa.sort === k; return '<th data-act="pa-sort" data-k="' + k + '" tabindex="0" aria-sort="' + (on ? (pa.dir > 0 ? 'ascending' : 'descending') : 'none') + '" style="cursor:pointer;user-select:none;white-space:nowrap' + (right ? ';text-align:right' : '') + '">' + label + '<span aria-hidden="true" style="margin-left:4px;color:' + (on ? 'inherit' : '#9CA3AF') + '">' + (on ? (pa.dir > 0 ? '▲' : '▼') : '↕') + '</span></th>'; };
+    var hasF = !!(pa.q.trim() || pa.st), clearBtn = hasF ? '<button type="button" class="btn" data-act="pa-clear" style="height:32px;padding:0 12px;font-size:13px">Clear filters</button>' : '';
+    var sup = D.account().level === 'supervisor';
+    var empty = !reqs.length ? 'No purchase requests yet.' + (sup ? ' Click <b>New request</b> to start.' : ' Requests from supervisors will appear here.') : 'No requests match your search or filters. ' + clearBtn;
+    var body = rows.map(function (r) { return '<tr data-act="pra-review" data-id="' + esc(r.id) + '" tabindex="0" style="cursor:pointer"><td class="mono" style="font-weight:600">' + esc(r.id) + '</td><td class="mono">' + esc(r.mat || '') + '</td><td class="desc">' + esc(r.text) + '</td><td style="text-align:right">' + (r.qty || '') + '</td><td style="text-align:right">' + amt(r.amount) + '</td><td>' + pill(r.status, PRA_STATUS[r.status] || GREY) + '</td><td class="mono">' + esc(r.io || '') + '</td><td class="mono">' + esc(r.ref) + '</td><td>' + moreBtn(r.id) + '</td></tr>'; }).join('');
+    var pmr = ui.pmenu && reqs.filter(function (x) { return x.id === ui.pmenu.id; })[0], pmi = [];
+    if (pmr) {
+      if (D.account().level === 'supervisor') {
+        if (pmr.status === 'Pending approval') pmi = [['pra-m-edit', ICO.pen, 'Edit'], ['pra-review', ICO.eye, 'View details']];
+        else if (pmr.status === 'Approved' && pmr.mat && !pmr.conv) pmi = [['pra-m-conv', ICO.doc, 'Request PR conversion']];
+        else if (pmr.status === 'Approved' && !pmr.mat) pmi = [['pra-m-cp', ICO.plus, 'Create PR']];
+      }
+      else if (pmr && isApprover() && pmr.status === 'Pending approval') pmi = [['pra-review', ICO.check, 'Approve'], ['pra-review', ICO.eye, 'View details']];
+      if (!pmi.length) pmi = [['pra-review', ICO.eye, 'View details']];
+    }
+    var pm = pmr ? '<div data-pmenu role="menu" style="position:fixed;left:' + Math.max(8, ui.pmenu.x - 210) + 'px;top:' + ui.pmenu.y + 'px;width:210px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;z-index:50">' + pmi.map(function (m) { return menuItem(m[0], pmr.id, m[1], m[2]); }).join('') + '</div>' : '';
     return shell('pra', '<div class="row between" style="align-items:flex-start"><div class="f"><span class="small muted">Purchasing</span><h1>Purchase Approval</h1></div>' + (D.account().level === 'supervisor' ? '<button type="button" class="btn primary" data-act="prf-open" style="height:40px">New request</button>' : '') + '</div>' +
-      '<div class="cards">' + cards.map(function (c) { return '<div class="stat"><span>' + esc(c[0]) + '</span><b>' + c[1] + '</b></div>'; }).join('') + '</div>' +
-      '<div class="tablecard"><div class="scroll"><table style="min-width:900px"><thead><tr><th>Control #</th><th>Date</th><th>Material #</th><th style="width:320px">Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Total Amount</th><th>IO</th><th>Status</th><th>Action</th>' + '<th></th>' + '</tr></thead><tbody>' + (body || '<tr><td colspan="10" class="empty">No requests.</td></tr>') + '</tbody></table></div></div>');
+      '<div class="cards">' + cards.map(function (c) { var on = pa.st === c[2]; return '<div class="stat" role="button" tabindex="0" data-act="pa-st" data-v="' + esc(c[2]) + '" aria-pressed="' + on + '" title="Click to filter" style="cursor:pointer' + (on ? ';outline:2px solid #3B5BDB' : '') + '"><span>' + esc(c[0]) + '</span><b>' + c[1] + '</b></div>'; }).join('') + '</div>' +
+      '<div class="tablecard"><div class="filters" style="align-items:center;gap:12px">' + fbtn + (hasF ? clearBtn.replace('height:32px', 'height:40px') : '') + '<input id="q" type="search" aria-label="Search" placeholder="Search" value="' + esc(pa.q) + '" data-filter="pa.q" style="margin-left:auto;height:40px;min-width:240px;max-width:360px;flex:1 1 280px"></div>' +
+      '<div class="scroll"><table class="vmid" style="min-width:900px"><thead><tr>' + th('PA#', 'id') + th('Material #', 'mat') + th('Description', 'text').replace('cursor:pointer', 'width:320px;cursor:pointer') + th('Qty', 'qty', true) + th('Total Amount', 'amount', true) + th('Status', 'status') + th('IO', 'io') + th('PR/PO', 'ref') + '<th></th></tr></thead><tbody>' + (body || '<tr><td colspan="9" class="empty">' + empty + '</td></tr>') + '</tbody></table></div>' +
+      '<div class="small muted" style="padding:12px 18px;border-top:1px solid var(--line)">Showing ' + rows.length + ' of ' + reqs.length + ' requests</div></div>' + pm);
+  }
+  function viewBudgetOverview() {
+    var ios = ioList(), all = D.prApprovals();
+    var rows = ios.map(function (x) { var rem = ioLeft(x), used = x.budget - rem; return { io: x.io, desc: x.desc, budget: x.budget, used: used, rem: rem, pct: x.budget > 0 ? used / x.budget * 100 : 0 }; });
+    var total = rows.reduce(function (s, r) { return s + r.budget; }, 0), used = rows.reduce(function (s, r) { return s + r.used; }, 0);
+    var waiting = all.filter(function (r) { return r.status === 'Pending approval' && D.inScope(r.sec); }).reduce(function (s, r) { return s + r.amount; }, 0);
+    var cards = [['Total Budget', total], ['Used', used], ['Remaining', total - used], ['Waiting for approval', waiting]];
+    var bar = function (p) { var c = p >= 90 ? '#DC2626' : p >= 70 ? '#F59E0B' : '#3B5BDB'; return '<div style="display:flex;align-items:center;gap:10px;min-width:180px"><div role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.round(p) + '" aria-label="Budget used" style="flex:1;height:8px;border-radius:4px;background:#E5E7EB;overflow:hidden"><div style="width:' + Math.min(100, p) + '%;height:100%;background:' + c + '"></div></div><span style="width:44px;text-align:right;font-variant-numeric:tabular-nums">' + p.toFixed(1) + '%</span></div>'; };
+    var body = rows.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.io) + '</td><td>' + esc(r.desc) + '</td><td style="text-align:right">' + amt(r.budget) + '</td><td style="text-align:right">' + amt(r.used) + '</td><td style="text-align:right;' + (r.rem < 0 ? 'color:#B91C1C' : '') + '">' + amt(r.rem) + '</td><td>' + bar(r.pct) + '</td></tr>'; }).join('');
+    return shell('bo', '<div class="f"><span class="small muted">Purchasing</span><h1>Budget Overview</h1></div>' +
+      '<div class="cards">' + cards.map(function (c) { return '<div class="stat"><span>' + esc(c[0]) + '</span><b style="font-size:22px">PHP ' + amt(c[1]) + '</b></div>'; }).join('') + '</div>' +
+      '<div class="tablecard"><div class="scroll"><table class="vmid" style="min-width:820px"><thead><tr><th>IO#</th><th>IO Description</th><th style="text-align:right">Budget</th><th style="text-align:right">Committed in MMS</th><th style="text-align:right">Remaining</th><th>% Used</th></tr></thead><tbody>' + (body || '<tr><td colspan="6" class="empty">No internal orders for your section.</td></tr>') + '</tbody></table></div>' +
+      '<div class="small muted" style="padding:12px 18px;border-top:1px solid var(--line)">Amounts in PHP. Committed in MMS = approved requests that are not yet cancelled or returned. Pending requests are not counted until approved.</div></div>');
   }
   function viewEquipment() {
     var seen = {}, all = [], q = ui.eq.q.toLowerCase();
@@ -619,7 +687,7 @@
     var body = rows.map(function (e) { return '<tr><td>' + link('#/equipment/' + e.kks, e.kks) + '</td><td class="desc">' + esc(e.text) + '</td></tr>'; }).join('');
     return shell('eq', '<div class="f"><span class="small muted">Equipment</span><h1>Equipment</h1></div>' +
       '<div class="tablecard"><div class="filters"><div class="f"><h2>Functional Locations (KKS)</h2></div>' + searchBox('eq', ui.eq.q) + '</div>' +
-      '<div class="scroll"><table style="min-width:520px"><thead><tr><th>Functional Location</th><th style="width:100%">Description</th></tr></thead><tbody>' + (body || '<tr><td colspan="2" class="empty">No equipment matches this search.</td></tr>') + '</tbody></table></div>' +
+      '<div class="scroll"><table style="min-width:520px"><thead><tr><th>Functional Location</th><th style="width:100%">Description</th></tr></thead><tbody>' + (body || '<tr><td colspan="2" class="empty">No equipment matches your search.' + (ui.eq.q ? ' <button type="button" class="btn" data-act="clear-q" data-k="eq" style="height:32px;margin-left:8px">Clear search</button>' : '') + '</td></tr>') + '</tbody></table></div>' +
       '<div class="small muted" style="padding:12px 18px;border-top:1px solid var(--line)">Showing ' + rows.length + ' of ' + all.length + ' functional locations · Sample data</div></div>');
   }
   function viewEquipmentDetail(kks) {
@@ -1084,7 +1152,7 @@
     else if (p[0] === 'equipment') html = p[1] ? viewEquipmentDetail(p[1]) : viewEquipment();
     else if (p[0] === 'pr-approval') html = (role === 'supervisor' || D.account().level === 'superintendent') ? viewPrApproval() : shell('pra', '<div class="f"><span class="small muted">Purchasing</span><h1>Purchase Approval</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
     else if (p[0] === 'pr-conversion') html = viewPrConversion();
-    else if (p[0] === 'budget-overview') html = shell('bo', '<div class="f"><span class="small muted">Purchasing</span><h1>Budget Overview</h1></div><div class="card"><div class="muted">Coming soon.</div></div>');
+    else if (p[0] === 'budget-overview') html = viewBudgetOverview();
     else if (p[0] === 'manpower') html = viewManpower();
     else if (p[0] === 'approvals') html = viewApprovals();
     else if (p[0] === 'material') html = viewMaterialDetail(p[1]);
@@ -1121,13 +1189,30 @@
     if (rr.status === 'Approved') D.sendToBppms(id, supName(), '');
     ui.ap.status = 'Sent to BPPMS'; ui.modal = { type: 'sent', id: id, to: to }; return true;
   }
-  function rerender() { route(); }
+  var lastDlg = '', trig = '';   // trig: selector of the control that opened the window, so focus goes back to it on close
+  function focusDlg() {
+    var d = document.querySelector('.dialog[aria-labelledby="prf-title"], .dialog[aria-labelledby="pra-title"]');
+    if (!d) { if (lastDlg && trig) { var tb = document.querySelector(trig); if (tb) tb.focus(); } lastDlg = ''; return; }
+    var key = d.getAttribute('aria-labelledby') + '|' + (ui.pra.rev || '') + '|' + ['edit', 'ret', 'conv', 'cp', 'pr', 'cc', 'cq'].map(function (k) { return ui.pra[k] ? 1 : 0; }).join('');
+    if (key === lastDlg) return; lastDlg = key;
+    var el = d.querySelector('input:not([readonly]):not([type=hidden]), select, textarea:not([readonly])') || d.querySelector('.btn.primary'); if (el) el.focus();
+  }
+  function praPfMsg(field) {
+    var no = String(ui.pra.pf.no).trim(), it = String(ui.pra.pf.item).trim();
+    if (field === 'pf.no' && no && !/^[0-9]{10}$/.test(no)) return 'The PR number must be 10 digits.';
+    if (field === 'pf.item' && it && !/^[0-9]+$/.test(it)) return 'The item number must be numbers only.';
+    if (/^[0-9]{10}$/.test(no) && /^[0-9]+$/.test(it) && D.prItemExists(no, it)) return 'PR ' + no + ' item ' + it + ' already exists.';
+    return '';
+  }
+  function setPraErr(m) { ui.pra.err = m; var el = document.getElementById('pra-err'); if (el) el.textContent = m; }
+  function rerender() { route(); focusDlg(); }
   function say(msg) { ui.toast = msg; rerender(); setTimeout(function () { ui.toast = ''; if (document.querySelector('.toast')) rerender(); }, 4500); }
 
   document.addEventListener('change', function (e) {
     var t = e.target;
     if (t.hasAttribute('data-account')) { D.setAccount(t.value); ui.modal = null; ui.mp = null; ui.apds = {}; ui.ap.group = ''; ME = D.techKey(t.value); location.hash = D.role() === 'technician' ? '#/jobs' : D.account().level === 'logistics' ? '#/pr-conversion' : '#/dashboard'; rerender(); return; }
     if (t.hasAttribute('data-bud')) { D.setBudget(t.getAttribute('data-sec'), t.getAttribute('data-ym'), t.getAttribute('data-bud'), t.value); rerender(); return; }
+    var pk0 = t.getAttribute && t.getAttribute('data-pra'); if (pk0 && pk0.indexOf('pf.') === 0) { setPraErr(praPfMsg(pk0)); return; }
     var pk = t.getAttribute && t.getAttribute('data-prf');
     if (pk) {
       if (pk === 'matq') { var mv = t.value, mm = D.materials().filter(function (x) { return mv === x.mat + ' - ' + x.text || mv.trim() === x.mat; })[0]; ui.prf.matq = mv; ui.prf.mat = mm ? mm.mat : ''; if (mm) ui.prf.matq = mm.mat + ' - ' + mm.text; ui.prf.err = mm || !mv ? '' : 'Pick a material number from the list.'; rerender(); }
@@ -1139,8 +1224,9 @@
   });
   document.addEventListener('input', function (e) {
     var pak = e.target.getAttribute && e.target.getAttribute('data-pra');
+    if (pak === 'aq') { ui.pra.aq = e.target.value; var ar = D.prApprovals().filter(function (x) { return x.id === ui.pra.rev; })[0], nt = document.getElementById('pra-nt'); if (ar && nt) nt.textContent = 'New total: PHP ' + amt(newAmt(ar)); return; }
     if (pak === 'rem') { ui.pra.rem = e.target.value; return; }
-    if (pak && pak.indexOf('pf.') === 0) { ui.pra.pf[pak.slice(3)] = e.target.value; return; }
+    if (pak && pak.indexOf('pf.') === 0) { ui.pra.pf[pak.slice(3)] = e.target.value; if (ui.pra.err) setPraErr(praPfMsg(pak)); return; }
     if (pak && pak.indexOf('cv.') === 0) { ui.pra.cvf[pak.slice(3)] = e.target.value; return; }
     if (pak && pak.indexOf('ef.') === 0) { ui.pra.ef[pak.slice(3)] = e.target.value; var pt2 = document.getElementById('pra-total'); if (pt2) pt2.value = amt((parseFloat(ui.pra.ef.qty) || 0) * (parseFloat(ui.pra.ef.price) || 0)); return; }
     var pk = e.target.getAttribute && e.target.getAttribute('data-prf');
@@ -1183,11 +1269,49 @@
     if (k === 'start') { if (m.end < m.start) m.end = m.start; rerender(); return; }
     mpRefresh();
   });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && ui.modal) { ui.modal = null; ui.err = ''; rerender(); } });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (ui.modal) { ui.modal = null; ui.err = ''; rerender(); }
+      else if (ui.prf.open) { ui.prf = { open: false }; rerender(); }
+      else if (ui.pa && ui.pa.fo && !ui.pra.rev) { ui.pa.fo = false; rerender(); }
+      else if (ui.pra.rev) { ui.pra.rev = ''; ui.pra.err = ''; rerender(); }
+      else if (ui.bell) { ui.bell = false; rerender(); }
+      return;
+    }
+    if (e.key === 'Tab') {   // keep Tab inside an open dialog
+      var dlg = document.querySelector('.dialog[aria-modal="true"]');
+      if (dlg) {
+        var fo = [].slice.call(dlg.querySelectorAll('button:not([disabled]), input:not([disabled]):not([type=hidden]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly]), [tabindex]:not([tabindex="-1"])')).filter(function (x) { return x.offsetParent !== null; });
+        if (fo.length) {
+          var fi = fo.indexOf(document.activeElement);
+          if (e.shiftKey && (fi <= 0)) { e.preventDefault(); fo[fo.length - 1].focus(); }
+          else if (!e.shiftKey && (fi < 0 || fi === fo.length - 1)) { e.preventDefault(); fo[0].focus(); }
+        }
+      }
+      return;
+    }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.matches && e.target.matches('tr[data-act], th[data-act], div[role=button][data-act]')) { e.preventDefault(); e.target.click(); return; }
+    if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT') {
+      var dl = e.target.closest('.dialog[aria-labelledby="prf-title"], .dialog[aria-labelledby="pra-title"]'), pb = dl && dl.querySelector('.row .btn.primary');
+      if (pb) { e.preventDefault(); pb.click(); }
+    }
+  });
   document.addEventListener('click', function (e) {
     if (e.target.hasAttribute && e.target.hasAttribute('data-overlay')) { ui.modal = null; ui.err = ''; ui.prf = { open: false }; ui.pra.rev = ''; rerender(); return; }
-    var b = e.target.closest && e.target.closest('[data-act]'); if (!b || b.disabled) return;
+    var b = e.target.closest && e.target.closest('[data-act]');
+    if (ui.pmenu && !(b && b.getAttribute('data-act') === 'pra-more')) { ui.pmenu = null; if (!b || b.disabled) { rerender(); return; } }
+    if (ui.pra && ui.pra.dm && !(b && b.getAttribute('data-act') === 'pra-dm')) { ui.pra.dm = false; if (!b || b.disabled) { rerender(); return; } }
+    if (ui.pa && ui.pa.fo && !(b && (b.getAttribute('data-act') === 'pa-fo' || b.closest('[data-fmenu]')))) { ui.pa.fo = false; if (!b || b.disabled) { rerender(); return; } }
+    if (!b || b.disabled) return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id');
+    if (act === 'pra-review' || act.indexOf('pra-m-') === 0) trig = b.closest('[data-pmenu]') ? '[data-act="pra-more"][data-id="' + id + '"]' : '[data-act="pra-review"][data-id="' + id + '"]';
+    if (act === 'prf-open') trig = '[data-act="prf-open"]';
+    if (act === 'pa-st') { ui.pa.st = ui.pa.st === b.getAttribute('data-v') ? '' : b.getAttribute('data-v'); rerender(); return; }
+    if (act === 'pa-fo') { ui.pa.fo = !ui.pa.fo; rerender(); return; }
+    if (act === 'pa-fs') { var fv = b.getAttribute('data-v'), fl = ui.pa.st ? ui.pa.st.split(',') : [], fx = fl.indexOf(fv); if (fx >= 0) fl.splice(fx, 1); else fl.push(fv); ui.pa.st = fl.join(','); rerender(); return; }
+    if (act === 'pa-clear') { ui.pa.q = ''; ui.pa.st = ''; rerender(); return; }
+    if (act === 'pa-sort') { var sk = b.getAttribute('data-k'); if (ui.pa.sort === sk) ui.pa.dir = -ui.pa.dir; else { ui.pa.sort = sk; ui.pa.dir = 1; } rerender(); return; }
+    if (act.indexOf('pra-m-') === 0) { var pm0 = D.prApprovals().filter(function (x) { return x.id === id; })[0]; ui.pra = { rev: id, io: pm0 && pm0.status === 'Approved' ? pm0.io : '', aq: pm0 ? pm0.qty || '' : '', err: '' }; act = 'pra-' + act.slice(6); }
     if (act === 'mp-step') { var mi = +b.getAttribute('data-i'), mp = mpState(), pn = D.manpowerPositions()[mi].pos; mp.qty[pn] = Math.max(0, Math.min(99, (parseInt(mp.qty[pn], 10) || 0) + (+b.getAttribute('data-d')))); var inp = document.querySelector('input[data-mp="qty"][data-i="' + mi + '"]'); if (inp) inp.value = mp.qty[pn]; mp.err = ''; if (mp.qty[pn] === 0) rerender(); else mpRefresh(); return; }
     if (act === 'mp-approve' || act === 'mp-reject') {
       var rid = b.getAttribute('data-id'), rta = document.getElementById('ap-r-' + rid), rtx = rta ? rta.value.trim() : '';
@@ -1211,11 +1335,20 @@
     }
     if (act === 'em-send') { if (sendEmailNow(id)) say(id + ' marked as sent to BPPMS. The requester and the in-charge are notified.'); return; }
     if (act === 'ap-open') { ui.ap.open = id; D.markAlertSeen(id); if (location.hash !== '#/approvals') location.hash = '#/approvals'; else rerender(); window.scrollTo(0, 0); return; }
-    if (act === 'pra-review') { var pr0 = D.prApprovals().filter(function (x) { return x.id === id; })[0]; ui.pra = { rev: id, io: pr0 && pr0.status === 'Approved' ? pr0.io : '', err: '' }; rerender(); return; }
+    if (act === 'pra-review') { var pr0 = D.prApprovals().filter(function (x) { return x.id === id; })[0]; ui.pra = { rev: id, io: pr0 && pr0.status === 'Approved' ? pr0.io : '', aq: pr0 ? pr0.qty || '' : '', err: '' }; rerender(); return; }
+    if (act === 'pra-dm') { ui.pra.dm = !ui.pra.dm; rerender(); return; }
+    if (act === 'pra-ret-no') { ui.pra.ret = false; ui.pra.err = ''; rerender(); return; }
+    if (act === 'pra-tab') { ui.pra.tab = b.getAttribute('data-t'); rerender(); return; }
+    if (act === 'pra-more') { var br = b.getBoundingClientRect(); ui.pmenu = ui.pmenu && ui.pmenu.id === id ? null : { id: id, x: br.right, y: br.bottom + 4 }; rerender(); return; }
+    if (act === 'pra-cq') { ui.pra.cq = true; rerender(); return; }
+    if (act === 'pra-cq-no') { ui.pra.cq = false; var q0 = D.prApprovals().filter(function (x) { return x.id === id; })[0]; ui.pra.aq = q0 ? q0.qty || '' : ''; rerender(); return; }
+    if (act === 'pra-cc') { ui.pra.cc = true; rerender(); return; }
+    if (act === 'pra-cc-no') { ui.pra.cc = false; rerender(); return; }
+    if (act === 'clear-q') { ui[b.getAttribute('data-k')].q = ''; rerender(); return; }
     if (act === 'pra-cp') { ui.pra.cp = true; ui.pra.err = ''; rerender(); return; }
     if (act === 'pra-pr-open') { ui.pra.pr = true; ui.pra.pf = { no: '', item: '' }; ui.pra.err = ''; rerender(); return; }
     if (act === 'pra-copy') {
-      var cr = D.prApprovals().filter(function (x) { return x.id === id; })[0], ct = ['', cr.text, cr.qty || '', cr.uom || '', 'N'].join('\t');
+      var cr = D.prApprovals().filter(function (x) { return x.id === id; })[0], cup = cr.price != null ? cr.price : (cr.qty ? cr.amount / cr.qty : cr.amount), ct = ['', cr.text, cr.qty || '', cr.uom || '', 'N', cup != null ? Math.round(cup * 100) / 100 : ''].join('\t');
       var done = function () { say('PR details copied.'); };
       try { navigator.clipboard.writeText(ct).then(done, function () { say('Copy failed.'); }); } catch (e) { say('Copy failed.'); }
       return;
@@ -1227,13 +1360,13 @@
       if (!/^\d{10}$/.test(String(pf.no).trim())) { ui.pra.err = 'The PR number must be 10 digits.'; rerender(); return; }
       if (!/^\d+$/.test(String(pf.item).trim())) { ui.pra.err = 'The item number must be numbers only.'; rerender(); return; }
       if (D.prItemExists(String(pf.no).trim(), String(pf.item).trim())) { ui.pra.err = 'PR ' + String(pf.no).trim() + ' item ' + String(pf.item).trim() + ' already exists.'; rerender(); return; }
-      D.convertToPr(id, String(pf.no).trim(), String(pf.item).trim()); ui.pra = { rev: '', io: '', err: '' }; say(id + ' converted to PR ' + pf.no.trim() + '.'); return;
+      if (!D.convertToPr(id, String(pf.no).trim(), String(pf.item).trim())) { ui.pra.err = STALE; rerender(); return; } ui.pra = { rev: '', io: '', err: '' }; say(id + ' converted to PR ' + pf.no.trim() + '.'); return;
     }
     if (act === 'pra-conv') { ui.pra.conv = true; ui.pra.cvf = { res: '', items: '' }; ui.pra.err = ''; rerender(); return; }
     if (act === 'pra-conv-send') {
       var cf = ui.pra.cvf;
       if (!String(cf.res).trim() || !String(cf.items).trim()) { ui.pra.err = 'Enter the reservation number and item number/s.'; rerender(); return; }
-      D.requestPrConversion(id, String(cf.res).trim(), String(cf.items).trim()); ui.pra = { rev: '', io: '', err: '' }; say('PR conversion requested for ' + id + '.'); return;
+      if (!D.requestPrConversion(id, String(cf.res).trim(), String(cf.items).trim())) { ui.pra.err = STALE; rerender(); return; } ui.pra = { rev: '', io: '', err: '' }; say('PR conversion requested for ' + id + '.'); return;
     }
     if (act === 'pra-edit') {
       ui.pra.edit = true;
@@ -1246,22 +1379,25 @@
       if (e1.status !== 'Approved' && !(q1 > 0)) { ui.pra.err = 'Enter the quantity.'; rerender(); return; }
       if (e1.status !== 'Approved' && !(p1 > 0)) { ui.pra.err = 'Enter the unit price.'; rerender(); return; }
       D.editPrApproval(id, e1.status === 'Approved' ? { text: String(ef1.text).trim(), uom: ef1.uom, long: String(ef1.long).trim() } : st1 ? { qty: q1, amount: q1 * p1 } : { text: String(ef1.text).trim(), qty: q1, uom: ef1.uom, long: String(ef1.long).trim(), price: p1, amount: q1 * p1 });
-      if (e1.status === 'Returned to requestor') D.decidePrApproval(id, 'Pending approval', '');
-      ui.pra = { rev: '', io: '', err: '' }; say(id + ' updated.'); return;
+      if (e1.status === 'Returned to requestor') D.decidePrApproval(id, 'Pending approval', '');      ui.pra = { rev: '', io: '', err: '' }; say(id + ' updated.'); return;
     }
     if (act === 'pra-close') { ui.pra.rev = ''; ui.pra.err = ''; rerender(); return; }
     if (act === 'pra-return') { ui.pra.ret = true; ui.pra.err = ''; rerender(); return; }
     if (act === 'pra-reject') {
       if (!(ui.pra.rem || '').trim()) { ui.pra.err = 'Enter the remarks.'; rerender(); return; }
-      D.decidePrApproval(id, 'Returned to requestor', '', ui.pra.rem.trim()); ui.pra = { rev: '', io: '', err: '' }; say(id + ' returned to requestor.'); return;
+      if (!D.decidePrApproval(id, 'Returned to requestor', '', ui.pra.rem.trim())) { ui.pra.err = STALE; rerender(); return; } ui.pra = { rev: '', io: '', err: '' }; say(id + ' returned to requestor.'); return;
     }
     if (act === 'pra-approve' || act === 'pra-save') {
       var rq = D.prApprovals().filter(function (x) { return x.id === id; })[0], io = ioList().filter(function (x) { return x.io === ui.pra.io; })[0];
       if (!io) { ui.pra.err = 'Select the IO.'; rerender(); return; }
-      if (io.io !== rq.io && rq.amount > ioLeft(io)) { ui.pra.err = 'The amount is more than the remaining budget of this IO.'; rerender(); return; }
-      D.decidePrApproval(id, 'Approved', io.io); ui.pra = { rev: '', io: '', err: '' }; say(id + (act === 'pra-save' ? ' updated. ' : ' approved. ') + 'IO ' + io.io + ' balance: PHP ' + amt(ioLeft(io))); return;
+      var nq = parseFloat(ui.pra.aq), qtyChg = act === 'pra-approve' && rq.qty && nq > 0 && nq !== rq.qty, namt = qtyChg ? nq * (rq.amount / rq.qty) : rq.amount;
+      if (act === 'pra-approve' && rq.qty && !(nq > 0)) { ui.pra.err = 'Enter the quantity.'; rerender(); return; }
+      if (io.io !== rq.io && namt > ioLeft(io)) { ui.pra.err = 'The amount is more than the remaining budget of this IO.'; rerender(); return; }
+      if (['Pending approval', 'Approved'].indexOf(rq.status) < 0) { ui.pra.err = STALE; rerender(); return; }
+      if (qtyChg) D.setPraQty(id, nq, namt, rq.qty);
+      if (!D.decidePrApproval(id, 'Approved', io.io)) { ui.pra.err = STALE; rerender(); return; } ui.pra = { rev: '', io: '', err: '' }; say(id + (act === 'pra-save' ? ' updated. ' : ' approved. ') + 'IO ' + io.io + ' balance: PHP ' + amt(ioLeft(io))); return;
     }
-    if (act === 'pra-cancel') { D.decidePrApproval(id, 'Pending approval', ''); ui.pra = { rev: '', io: '', err: '' }; say('Approval of ' + id + ' cancelled.'); return; }
+    if (act === 'pra-cancel') { if (!D.decidePrApproval(id, 'Pending approval', '')) { ui.pra.err = STALE; rerender(); return; } ui.pra = { rev: '', io: '', err: '' }; say('Approval of ' + id + ' cancelled.'); return; }
     if (act === 'prf-open') { ui.prf = prfFresh(); rerender(); return; }
     if (act === 'prf-close') { ui.prf = { open: false }; rerender(); return; }
     if (act === 'prf-clear') { ui.prf = prfFresh(); rerender(); return; }
