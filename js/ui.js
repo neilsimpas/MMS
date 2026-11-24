@@ -113,7 +113,7 @@
       '<div class="nav">' + nav + '</div><div class="grow"></div>' +
       '<div class="who"><label for="role">Viewing as</label><select id="role" data-account>' + (function () { var cur = D.account().name, view = [['Rito M. Valledor', 'Technician'], ['Ronnel A. Flores', 'Supervisor'], ['Carolino M. Luna', 'Superintendent'], ['Romel M. Arnaldo', 'Manager'], ['Edgardo M. Gurrea Jr.', 'Logistics']]; return view.map(function (v) { return '<option value="' + esc(v[0]) + '"' + (v[0] === cur ? ' selected' : '') + '>' + esc(v[0]) + ' - ' + v[1] + '</option>'; }).join(''); })() + '</select>' +
       '<button type="button" data-act="reset">Reset demo data</button><span style="color:#9AA3AF;line-height:1.4">Prototype. SAP data is sample data. Entries made here are saved in this browser only.</span></div></nav>' +
-      '<main class="main">' + bellHtml() + content + '</main></div>' + (ui.modal ? modalHtml() : '') + (ui.prf.open ? prFormHtml() : '') + (ui.pra.rev ? prReviewHtml() : '') + (ui.toast ? '<div class="toast" role="status">' + esc(ui.toast) + '</div>' : '');
+      '<main class="main">' + bellHtml() + content + '</main></div>' + (ui.modal ? modalHtml() : '') + (ui.prf.open ? prFormHtml() : '') + (ui.pra.rev ? prReviewHtml() : '') + (ui.toast ? '<div class="toast" aria-hidden="true">' + esc(ui.toast) + '</div>' : '');
   }
   function backLink(href, text) { return '<a class="back" href="' + href + '">← ' + esc(text) + '</a>'; }
 
@@ -606,7 +606,7 @@
     var line = '<span style="position:absolute;left:6px;top:14px;bottom:-18px;width:2px;background:var(--line)"></span>';
     var all = ev.map(function (e) { return { l: e.l, done: true, who: e.who, when: e.when, sub: e.sub, note: e.note }; }).concat(fut.map(function (s, i) { return { l: s[0], done: false, now: i === 0 }; }));
     return all.map(function (e, i) {
-      var dot = '<span style="position:absolute;left:0;top:3px;width:14px;height:14px;border-radius:50%;box-sizing:border-box;background:' + (e.done ? '#16A34A' : '#fff') + ';border:2px solid ' + (e.done ? '#16A34A' : e.now ? '#3B5BDB' : '#D1D5DB') + '"></span>';
+      var dot = '<span style="position:absolute;left:0;top:3px;width:14px;height:14px;border-radius:50%;box-sizing:border-box;background:' + (e.done ? '#16A34A' : '#fff') + ';border:2px solid ' + (e.done ? '#16A34A' : e.now ? '#3B5BDB' : '#9CA3AF') + '"></span>';
       var meta = e.done ? '<div class="small muted">' + (e.when ? fmtD(e.when) : '') + (e.who ? (e.when ? ' · ' : '') + esc(e.who) : '') + '</div>' + (e.sub ? '<div class="small muted">' + esc(e.sub) + '</div>' : '') + (e.note ? '<div class="small" style="margin-top:2px">' + esc(e.note) + '</div>' : '') : '';
       return '<div style="position:relative;padding:0 0 ' + (i < all.length - 1 ? '18' : '0') + 'px 28px">' + (i < all.length - 1 ? line : '') + dot + '<div style="font-weight:' + (e.done || e.now ? '600' : '400') + ';color:' + (e.done ? 'inherit' : e.now ? '#3B5BDB' : '#6B7280') + '">' + esc(e.l) + '</div>' + meta + '</div>';
     }).join('');
@@ -644,7 +644,7 @@
     var fopts = Object.keys(PRA_STATUS).map(function (k) { var on = sts.indexOf(k) >= 0; return '<button type="button" role="menuitemcheckbox" aria-checked="' + on + '" data-act="pa-fs" data-v="' + esc(k) + '" style="display:flex;align-items:center;gap:10px;width:100%;border:none;background:none;cursor:pointer;text-align:left;min-height:38px;padding:0 12px;font:inherit;font-size:14px;color:#374151"><span aria-hidden="true" style="flex:none;width:16px;height:16px;border-radius:4px;box-sizing:border-box;border:1.5px solid ' + (on ? '#3B5BDB' : '#9CA3AF') + ';background:' + (on ? '#3B5BDB' : '#fff') + ';color:#fff;font-size:11px;line-height:13px;text-align:center">' + (on ? '✓' : '') + '</span><span style="flex:1">' + esc(k) + '</span><span class="muted small">' + count(k) + '</span></button>'; }).join('');
     var fmenu = pa.fo ? '<div data-fmenu role="menu" aria-label="Filter by status" style="position:absolute;left:0;top:calc(100% + 6px);width:260px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;z-index:20"><div class="small muted" style="padding:8px 12px 4px;font-weight:600">Status</div>' + fopts + '</div>' : '';
     var fbtn = '<div style="position:relative"><button type="button" class="btn" data-act="pa-fo" aria-haspopup="menu" aria-expanded="' + !!pa.fo + '" style="height:40px;gap:8px;display:inline-flex;align-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.5V19l4 2v-8.5z"/></svg>Filter' + (sts.length ? '<span style="background:#3B5BDB;color:#fff;border-radius:10px;font-size:12px;min-width:20px;height:20px;line-height:20px;text-align:center;padding:0 5px">' + sts.length + '</span>' : '') + '</button>' + fmenu + '</div>';
-    var th = function (label, k, right) { var on = pa.sort === k; return '<th data-act="pa-sort" data-k="' + k + '" tabindex="0" aria-sort="' + (on ? (pa.dir > 0 ? 'ascending' : 'descending') : 'none') + '" style="cursor:pointer;user-select:none;white-space:nowrap' + (right ? ';text-align:right' : '') + '">' + label + '<span aria-hidden="true" style="margin-left:4px;color:' + (on ? 'inherit' : '#9CA3AF') + '">' + (on ? (pa.dir > 0 ? '▲' : '▼') : '↕') + '</span></th>'; };
+    var th = function (label, k, right) { var on = pa.sort === k; return '<th data-act="pa-sort" data-k="' + k + '" tabindex="0" aria-sort="' + (on ? (pa.dir > 0 ? 'ascending' : 'descending') : 'none') + '" style="cursor:pointer;user-select:none;white-space:nowrap' + (right ? ';text-align:right' : '') + '">' + label + '<span aria-hidden="true" style="margin-left:4px;color:' + (on ? 'inherit' : '#6B7280') + '">' + (on ? (pa.dir > 0 ? '▲' : '▼') : '↕') + '</span></th>'; };
     var hasF = !!(pa.q.trim() || pa.st), clearBtn = hasF ? '<button type="button" class="btn" data-act="pa-clear" style="height:32px;padding:0 12px;font-size:13px">Clear filters</button>' : '';
     var sup = D.account().level === 'supervisor';
     var empty = !reqs.length ? 'No purchase requests yet.' + (sup ? ' Click <b>New request</b> to start.' : ' Requests from supervisors will appear here.') : 'No requests match your search or filters. ' + clearBtn;
@@ -673,11 +673,10 @@
     var waiting = all.filter(function (r) { return r.status === 'Pending approval' && D.inScope(r.sec); }).reduce(function (s, r) { return s + r.amount; }, 0);
     var cards = [['Total Budget', total], ['Used', used], ['Remaining', total - used], ['Waiting for approval', waiting]];
     var bar = function (p) { var c = p >= 90 ? '#DC2626' : p >= 70 ? '#F59E0B' : '#3B5BDB'; return '<div style="display:flex;align-items:center;gap:10px;min-width:180px"><div role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.round(p) + '" aria-label="Budget used" style="flex:1;height:8px;border-radius:4px;background:#E5E7EB;overflow:hidden"><div style="width:' + Math.min(100, p) + '%;height:100%;background:' + c + '"></div></div><span style="width:44px;text-align:right;font-variant-numeric:tabular-nums">' + p.toFixed(1) + '%</span></div>'; };
-    var body = rows.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.io) + '</td><td>' + esc(r.desc) + '</td><td style="text-align:right">' + amt(r.budget) + '</td><td style="text-align:right">' + amt(r.used) + '</td><td style="text-align:right;' + (r.rem < 0 ? 'color:#B91C1C' : '') + '">' + amt(r.rem) + '</td><td>' + bar(r.pct) + '</td></tr>'; }).join('');
+    var body = rows.map(function (r) { return '<tr><td class="mono" style="font-weight:600">' + esc(r.io) + '</td><td>' + esc(r.desc) + '</td><td style="text-align:right">' + amt(r.budget) + '</td><td style="text-align:right">' + amt(r.used) + '</td><td style="text-align:right;' + (r.rem < 0 ? 'color:#B91C1C' : '') + '">' + amt(r.rem) + (r.rem < 0 ? ' <span class="small">(over budget)</span>' : '') + '</td><td>' + bar(r.pct) + '</td></tr>'; }).join('');
     return shell('bo', '<div class="f"><span class="small muted">Purchasing</span><h1>Budget Overview</h1></div>' +
       '<div class="cards">' + cards.map(function (c) { return '<div class="stat"><span>' + esc(c[0]) + '</span><b style="font-size:22px">PHP ' + amt(c[1]) + '</b></div>'; }).join('') + '</div>' +
-      '<div class="tablecard"><div class="scroll"><table class="vmid" style="min-width:820px"><thead><tr><th>IO#</th><th>IO Description</th><th style="text-align:right">Budget</th><th style="text-align:right">Committed in MMS</th><th style="text-align:right">Remaining</th><th>% Used</th></tr></thead><tbody>' + (body || '<tr><td colspan="6" class="empty">No internal orders for your section.</td></tr>') + '</tbody></table></div>' +
-      '<div class="small muted" style="padding:12px 18px;border-top:1px solid var(--line)">Amounts in PHP. Committed in MMS = approved requests that are not yet cancelled or returned. Pending requests are not counted until approved.</div></div>');
+      '<div class="tablecard"><div class="scroll"><table class="vmid" style="min-width:820px"><thead><tr><th>IO#</th><th>IO Description</th><th style="text-align:right">Budget</th><th style="text-align:right">Committed in MMS</th><th style="text-align:right">Remaining</th><th>% Used</th></tr></thead><tbody>' + (body || '<tr><td colspan="6" class="empty">No internal orders for your section.</td></tr>') + '</tbody></table></div></div>');
   }
   function viewEquipment() {
     var seen = {}, all = [], q = ui.eq.q.toLowerCase();
@@ -1206,7 +1205,14 @@
   }
   function setPraErr(m) { ui.pra.err = m; var el = document.getElementById('pra-err'); if (el) el.textContent = m; }
   function rerender() { route(); focusDlg(); }
-  function say(msg) { ui.toast = msg; rerender(); setTimeout(function () { ui.toast = ''; if (document.querySelector('.toast')) rerender(); }, 4500); }
+  var toastTimer = 0;
+  function say(msg) {
+    ui.toast = msg; rerender();
+    var lv = document.getElementById('live');   // one live region that is never re-rendered, so screen readers announce the message
+    if (!lv) { lv = document.createElement('div'); lv.id = 'live'; lv.className = 'sr-only'; lv.setAttribute('aria-live', 'polite'); lv.setAttribute('role', 'status'); document.body.appendChild(lv); }
+    lv.textContent = ''; setTimeout(function () { lv.textContent = msg; }, 50);
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { ui.toast = ''; if (document.querySelector('.toast')) rerender(); }, 4500);
+  }
 
   document.addEventListener('change', function (e) {
     var t = e.target;

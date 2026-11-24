@@ -84,6 +84,9 @@ pre{margin:0;white-space:pre-wrap;font-family:'IBM Plex Mono',ui-monospace,Conso
 .g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
 .hint{font-size:13px;color:var(--muted)}
 .err{color:#B91C1C;font-size:13px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+tr[tabindex]:focus-visible{outline-offset:-2px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .toast{position:fixed;right:20px;bottom:20px;background:#16191D;color:#fff;padding:12px 16px;border-radius:10px;z-index:60}
 @media (max-width:900px){.side{position:static;width:100%;height:auto}.shell{flex-direction:column}.main{padding:18px}.bellwrap{top:18px;right:18px}}
 
